@@ -145,11 +145,12 @@ impl ScreenshotPayloadOptions {
 }
 
 /// Environment variable forcing a single capture backend, skipping the
-/// fallback chain. Accepts `gnome-shell`, `portal`, `x11`, or `gnome-screenshot`.
+/// fallback chain. Accepts `grim`, `gnome-shell`, `portal`, `x11`, or `gnome-screenshot`.
 const SCREENSHOT_BACKEND_ENV: &str = "COMPUTER_USE_LINUX_SCREENSHOT_BACKEND";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScreenshotBackend {
+    Grim,
     GnomeShell,
     Portal,
     X11,
@@ -159,6 +160,7 @@ enum ScreenshotBackend {
 impl ScreenshotBackend {
     fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "grim" => Some(Self::Grim),
             "gnome-shell" | "gnome_shell" | "shell" => Some(Self::GnomeShell),
             "portal" | "xdg-portal" | "xdg_portal" => Some(Self::Portal),
             "x11" | "x11-native" | "x11_native" | "xgetimage" => Some(Self::X11),
@@ -169,6 +171,7 @@ impl ScreenshotBackend {
 
     async fn capture(self) -> Result<RawScreenshotCapture> {
         match self {
+            Self::Grim => capture_with_grim().await,
             Self::GnomeShell => capture_with_gnome_shell().await,
             Self::Portal => capture_with_portal().await,
             Self::X11 => capture_with_x11().await,
@@ -187,12 +190,14 @@ pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
         return forced.capture().await;
     }
 
-    // The Shell and portal DBus paths fail for background processes (systemd
-    // user services, non-interactive parent shells): GNOME Shell's
-    // DBusSenderChecker rejects unknown bus names, and the portal cancels with
-    // response code 2 when there is no foreground window. `gnome-screenshot`
-    // claims an allowlisted bus name and works regardless, so it is the final
-    // fallback. See issue #20.
+    // grim first: direct compositor capture on wlroots (Hyprland, Sway). No
+    // portal dialog, no multi-monitor black-frame bug. Fails fast off Wayland.
+    let grim_error = match capture_with_grim().await {
+        Ok(capture) => return Ok(capture),
+        Err(error) => error,
+    };
+    // GNOME Shell and the portal both fail for background or systemd
+    // processes. gnome-screenshot has an allowlisted bus name that works (#20).
     let gnome_error = match capture_with_gnome_shell().await {
         Ok(capture) => return Ok(capture),
         Err(error) => error,
@@ -201,9 +206,8 @@ pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
         Ok(capture) => return Ok(capture),
         Err(error) => error,
     };
-    // Native X11 only, and ahead of gnome-screenshot: gnome-screenshot 41 masks
-    // everything outside the GDK monitor geometry, which is 1/4 of the frame at
-    // window-scaling-factor 2 on MATE (issue #155). GetImage has no GDK layer.
+    // Native X11 first, ahead of gnome-screenshot: gnome-screenshot 41 masks
+    // anything outside the GDK monitor geometry at scale 2 on MATE (#155).
     let x11_error = match capture_with_x11().await {
         Ok(capture) => return Ok(capture),
         Err(error) => error,
@@ -214,7 +218,8 @@ pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
     };
 
     Err(anyhow!(
-        "GNOME Shell screenshot failed: {gnome_error}; \
+        "grim screenshot failed: {grim_error}; \
+         GNOME Shell screenshot failed: {gnome_error}; \
          XDG portal screenshot failed: {portal_error}; \
          native X11 screenshot failed: {x11_error}; \
          gnome-screenshot fallback failed: {cli_error}"
@@ -258,7 +263,7 @@ fn forced_backend() -> Result<Option<ScreenshotBackend>> {
             ScreenshotBackend::parse(&value).map(Some).ok_or_else(|| {
                 anyhow!(
                     "{SCREENSHOT_BACKEND_ENV}={value:?} is not a recognized backend \
-                     (expected gnome-shell, portal, x11, or gnome-screenshot)"
+                     (expected grim, gnome-shell, portal, x11, or gnome-screenshot)"
                 )
             })
         }
@@ -346,13 +351,13 @@ async fn capture_with_gnome_shell() -> Result<RawScreenshotCapture> {
     let (success, filename_used): (bool, String) = match result {
         Ok(result) => result,
         Err(error) => {
-            cleanup_gnome_requested_path(&path);
+            cleanup_requested_path(&path);
             return Err(error).context("GNOME Shell Screenshot call failed");
         }
     };
 
     if !success {
-        cleanup_gnome_requested_path(&path);
+        cleanup_requested_path(&path);
         bail!("GNOME Shell reported screenshot failure");
     }
 
@@ -413,6 +418,56 @@ async fn capture_with_portal() -> Result<RawScreenshotCapture> {
     read_png_as_capture(path, "xdg-desktop-portal", ScreenshotCleanup::Preserve).await
 }
 
+/// Upper bound on how long we wait for `grim` before killing it. Matches
+/// the other CLI fallback so a hung capture can't block the tool forever.
+const GRIM_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Full-desktop capture via `grim`, direct from the wlroots compositor.
+/// No portal dialog. Needs a Wayland session and the `grim` binary.
+async fn capture_with_grim() -> Result<RawScreenshotCapture> {
+    if is_native_x11_session() {
+        bail!("not a Wayland session (grim needs WAYLAND_DISPLAY)");
+    }
+    let path = temp_png_path("grim");
+    let filename = path
+        .to_str()
+        .context("temporary screenshot path is not valid UTF-8")?;
+
+    let mut command = Command::new("grim");
+    command
+        .arg(filename)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    let mut child = match crate::command_runner::spawn_retrying_busy(&mut command).await {
+        Ok(child) => child,
+        Err(error) => {
+            cleanup_requested_path(&path);
+            return Err(error).context("failed to spawn grim");
+        }
+    };
+
+    let status = match tokio::time::timeout(GRIM_TIMEOUT, child.wait()).await {
+        Ok(Ok(status)) => status,
+        Ok(Err(error)) => {
+            cleanup_requested_path(&path);
+            return Err(error).context("failed to wait for grim");
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            cleanup_requested_path(&path);
+            bail!("grim timed out");
+        }
+    };
+
+    if !status.success() {
+        cleanup_requested_path(&path);
+        bail!("grim exited with {status}");
+    }
+
+    read_png_as_capture(path.clone(), "grim", ScreenshotCleanup::DeletePath(path)).await
+}
+
 /// Upper bound on how long we wait for `gnome-screenshot` before killing it.
 /// Matches the portal timeout: a hung capture must not block the tool forever.
 const GNOME_SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -435,7 +490,7 @@ async fn capture_with_gnome_screenshot() -> Result<RawScreenshotCapture> {
     let mut child = match crate::command_runner::spawn_retrying_busy(&mut command).await {
         Ok(child) => child,
         Err(error) => {
-            cleanup_gnome_requested_path(&path);
+            cleanup_requested_path(&path);
             return Err(error).context("failed to spawn gnome-screenshot");
         }
     };
@@ -445,18 +500,18 @@ async fn capture_with_gnome_screenshot() -> Result<RawScreenshotCapture> {
     let status = match tokio::time::timeout(GNOME_SCREENSHOT_TIMEOUT, child.wait()).await {
         Ok(Ok(status)) => status,
         Ok(Err(error)) => {
-            cleanup_gnome_requested_path(&path);
+            cleanup_requested_path(&path);
             return Err(error).context("failed to wait for gnome-screenshot");
         }
         Err(_) => {
             let _ = child.kill().await;
-            cleanup_gnome_requested_path(&path);
+            cleanup_requested_path(&path);
             bail!("gnome-screenshot timed out");
         }
     };
 
     if !status.success() {
-        cleanup_gnome_requested_path(&path);
+        cleanup_requested_path(&path);
         bail!("gnome-screenshot exited with {status}");
     }
 
@@ -642,7 +697,7 @@ fn next_dimensions_for_byte_cap(
     (next_width, next_height)
 }
 
-fn cleanup_gnome_requested_path(path: &Path) {
+fn cleanup_requested_path(path: &Path) {
     let _ = fs::remove_file(path);
 }
 
@@ -775,6 +830,14 @@ mod tests {
 
     #[test]
     fn parses_known_backend_names() {
+        assert_eq!(
+            ScreenshotBackend::parse("grim"),
+            Some(ScreenshotBackend::Grim)
+        );
+        assert_eq!(
+            ScreenshotBackend::parse(" GRIM "),
+            Some(ScreenshotBackend::Grim)
+        );
         assert_eq!(
             ScreenshotBackend::parse("gnome-shell"),
             Some(ScreenshotBackend::GnomeShell)
@@ -993,7 +1056,7 @@ mod tests {
         let path = test_path("gnome-pre-read-failure");
         fs::write(&path, b"partial").unwrap();
 
-        cleanup_gnome_requested_path(&path);
+        cleanup_requested_path(&path);
 
         assert!(!path.exists());
     }
