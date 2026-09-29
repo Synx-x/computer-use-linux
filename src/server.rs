@@ -80,6 +80,10 @@ pub struct ComputerUseLinux {
     /// Cached physical desktop size from the most recent full-frame capture;
     /// used for off-screen warnings and portal logical-coordinate mapping.
     desktop_size: Arc<Mutex<Option<(u32, u32)>>>,
+    /// Windows whose last action failed its check, with the reason. The server
+    /// refuses input to such a window until a look (screenshot, get_app_state,
+    /// or act with no steps) clears it. No client can retry blind.
+    act_failures: Arc<Mutex<std::collections::HashMap<u64, String>>>,
 }
 
 fn sanitize_unsigned_integer_formats(value: &mut serde_json::Value) {
@@ -347,6 +351,7 @@ impl ComputerUseLinux {
         &self,
         Parameters(params): Parameters<GetAppStateParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        self.set_failure(params.window_id.unwrap_or(0), None);
         let verbose = params.verbose.unwrap_or(false);
         let diagnostics = tokio::task::spawn_blocking(doctor_report)
             .await
@@ -524,6 +529,7 @@ impl ComputerUseLinux {
         &self,
         Parameters(params): Parameters<ScreenshotParams>,
     ) -> Result<CallToolResult, ErrorData> {
+        self.set_failure(params.window_id.unwrap_or(0), None);
         let target = params.window_target();
         let target_window = match target.as_ref() {
             Some(target) => Some(
@@ -613,7 +619,7 @@ impl ComputerUseLinux {
 
     #[tool(
         name = "act",
-        description = "Act and verify in ONE call. Prefer this over click/press_key/type_text/screenshot. How to use it well: (1) Look once with steps=[] and observe=\"full\" to learn the layout. (2) Then put a whole sub-task in one call: e.g. [click menu, wait 300, click option, wait 800, click column header] with expect=\"change\". Do not send one click per call. (3) Keep observe=\"delta\" (the default): you get only the changed area, which is cheap; use \"full\" only when you are lost. (4) Read the result: steps[].ok, changed, expect_passed, window.title (after the steps). If expect failed, look (steps=[], observe=\"full\") before retrying; never repeat a failed click blindly. Coordinates are window-relative in capture pixels: image pixels / image.scale + image.crop origin. Before every click the tool waits until the window stops moving (scroll animations, menus opening), so clicks after a scroll land on the settled layout. Typing only reaches a focused text field: click the field in the same batch first. save_landmark remembers a point; click {landmark} re-checks its pixels and window size and refuses on mismatch.",
+        description = "Act and verify in ONE call. Prefer this over click/press_key/type_text/screenshot. How to use it well: (1) Look once with steps=[] and observe=\"full\" to learn the layout. (2) Then put a whole sub-task in one call: e.g. [click menu, wait 300, click option, wait 800, click column header] with expect=\"change\". Do not send one click per call. (3) Enforced: a batch returns only the changed area. observe=\"full\" works only with steps=[] or right after a failed check, otherwise the server downgrades it to delta. (4) Enforced: every batch defaults to expect=\"change\". Read steps[].ok, changed, expect_passed and window.title (after the steps). When a batch fails, the server refuses further input to that window, including click/press_key/type_text, until you look with steps=[]. Coordinates are window-relative in capture pixels: image pixels / image.scale + image.crop origin. Before every click the tool waits until the window stops moving (scroll animations, menus opening), so clicks after a scroll land on the settled layout. Typing only reaches a focused text field: click the field in the same batch first. save_landmark remembers a point; click {landmark} re-checks its pixels and window size and refuses on mismatch.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -635,8 +641,33 @@ impl ComputerUseLinux {
             .clone()
             .or_else(|| window.wm_class.clone())
             .unwrap_or_else(|| "unknown".to_string());
-        let observe = params.observe.as_deref().unwrap_or("delta").to_ascii_lowercase();
-        let needs_frames = observe != "none" || params.expect.is_some();
+        // Enforced loop, not just described: see the tool description.
+        let is_look = params.steps.is_empty();
+        let prior_failure = self.failure_for(Some(window.window_id));
+        if let (false, Some(reason)) = (is_look, prior_failure.clone()) {
+            let refusal = serde_json::json!({
+                "ok": false,
+                "refused": Self::blind_retry_refusal("act", reason, None).message,
+                "window": {"window_id": window.window_id, "app": app, "title": window.title},
+            });
+            return Ok(CallToolResult::success(vec![ContentBlock::text(refusal.to_string())]));
+        }
+        if is_look {
+            self.set_failure(window.window_id, None);
+        }
+        // The server checks every batch. Steps imply expect=change unless stated.
+        let expect = params
+            .expect
+            .clone()
+            .or_else(|| (!is_look).then(|| "change".to_string()));
+        // The agent earns a full image with a pure look or right after a failed check.
+        let requested = params.observe.as_deref().unwrap_or("delta").to_ascii_lowercase();
+        let (observe, observe_note) = if requested == "full" && !is_look && prior_failure.is_none() {
+            ("delta".to_string(), Some("full downgraded to delta: use steps=[] with observe=full to look"))
+        } else {
+            (requested, None)
+        };
+        let needs_frames = observe != "none" || expect.is_some();
 
         // Focus once up front so the before-frame shows the window on top.
         let _ = focus_window_target(&target).await;
@@ -671,7 +702,7 @@ impl ComputerUseLinux {
                 frame_after = Some(after);
             }
         }
-        let expect_passed = match (params.expect.as_deref(), changed) {
+        let expect_passed = match (expect.as_deref(), changed) {
             (Some("change"), Some(c)) => Some(c),
             (Some("no_change"), Some(c)) => Some(!c),
             _ => None,
@@ -719,6 +750,19 @@ impl ComputerUseLinux {
             }
         }
 
+        let failure = if !all_ok {
+            step_results
+                .iter()
+                .find(|step| step["ok"] == false)
+                .map(|step| format!("step '{}' failed: {}", step["step"].as_str().unwrap_or("?"), step["message"].as_str().unwrap_or("")))
+        } else if expect_passed == Some(false) {
+            Some(format!("expected {} but changed={:?}", expect.as_deref().unwrap_or("?"), changed))
+        } else {
+            None
+        };
+        if !is_look {
+            self.set_failure(window.window_id, failure);
+        }
         // The title after the steps shows navigation without needing an image.
         let title_after = list_windows()
             .await
@@ -731,8 +775,10 @@ impl ComputerUseLinux {
             "steps": step_results,
             "changed": changed,
             "changed_region": region,
-            "expect": params.expect,
+            "expect": expect,
             "expect_passed": expect_passed,
+            "observe": observe,
+            "observe_note": observe_note,
             "landmarks": landmark_checks,
             "image": image_note,
             "window": {"window_id": window.window_id, "app": app, "title": title_after},
@@ -812,6 +858,9 @@ impl ComputerUseLinux {
         )
     )]
     async fn click(&self, Parameters(mut params): Parameters<ClickParams>) -> Json<ActionOutput> {
+        if let Some(reason) = self.failure_for(params.window_id) {
+            return Json(Self::blind_retry_refusal("click", reason, Some(serde_json::json!(params.clone()))));
+        }
         let received = Some(serde_json::json!(params.clone()));
         let input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
         let mut portal_target_point = None;
@@ -1599,6 +1648,9 @@ impl ComputerUseLinux {
         Parameters(params): Parameters<PressKeyParams>,
     ) -> Json<ActionOutput> {
         let received = Some(serde_json::json!(params.clone()));
+        if let Some(reason) = self.failure_for(params.window_id) {
+            return Json(Self::blind_retry_refusal("press_key", reason, received));
+        }
         let input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
         let focus = match self.focus_target_for_input(&params.window_target()).await {
             Ok(focus) => focus,
@@ -1744,6 +1796,9 @@ impl ComputerUseLinux {
         Parameters(params): Parameters<TypeTextParams>,
     ) -> Json<ActionOutput> {
         let received = Some(serde_json::json!(params.clone()));
+        if let Some(reason) = self.failure_for(params.window_id) {
+            return Json(Self::blind_retry_refusal("type_text", reason, received));
+        }
         let input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
         let window_target = params.window_target();
         let focus = match self.focus_target_for_input(&window_target).await {
@@ -3034,6 +3089,36 @@ struct ActionOutput {
 }
 
 impl ComputerUseLinux {
+    fn failure_for(&self, window_id: Option<u64>) -> Option<String> {
+        let id = window_id?;
+        self.act_failures.lock().ok()?.get(&id).cloned()
+    }
+
+    fn set_failure(&self, window_id: u64, reason: Option<String>) {
+        if let Ok(mut map) = self.act_failures.lock() {
+            match reason {
+                Some(reason) => {
+                    map.insert(window_id, reason);
+                }
+                None => {
+                    map.remove(&window_id);
+                }
+            }
+        }
+    }
+
+    fn blind_retry_refusal(action: &str, reason: String, received: Option<serde_json::Value>) -> ActionOutput {
+        ActionOutput {
+            ok: false,
+            implemented: true,
+            action: action.to_string(),
+            message: format!(
+                "Refused: the last action on this window failed its check ({reason}). Look first (screenshot, get_app_state, or act with steps=[]), then decide from what is on screen."
+            ),
+            received,
+        }
+    }
+
     /// Capture one window as decoded pixels, cropped to its bounds.
     async fn capture_window_frame(&self, window: &WindowInfo) -> Result<image::DynamicImage> {
         let raw = capture_screenshot_raw().await?;
