@@ -613,7 +613,7 @@ impl ComputerUseLinux {
 
     #[tool(
         name = "act",
-        description = "Run a batch of input steps against one window, then report what changed, so one call both acts and verifies. Steps: click (window-relative x/y or a saved landmark name), key, type, scroll, wait, save_landmark. The batch stops at the first failed step. After a settle delay it diffs the window against the pre-action frame and returns changed (bool), the changed box, an expect pass/fail when expect is set, and (observe=delta, the default) an image cropped to only the changed area. Landmarks are checked against the live pixels before a landmark click; a mismatch refuses the click and returns the reason, so a moved, resized or rezoomed window cannot cause a blind misclick.",
+        description = "Act and verify in ONE call. Prefer this over click/press_key/type_text/screenshot. How to use it well: (1) Look once with steps=[] and observe=\"full\" to learn the layout. (2) Then put a whole sub-task in one call: e.g. [click menu, wait 300, click option, wait 800, click column header] with expect=\"change\". Do not send one click per call. (3) Keep observe=\"delta\" (the default): you get only the changed area, which is cheap; use \"full\" only when you are lost. (4) Read the result: steps[].ok, changed, expect_passed, window.title (after the steps). If expect failed, look (steps=[], observe=\"full\") before retrying; never repeat a failed click blindly. Coordinates are window-relative in capture pixels: image pixels / image.scale + image.crop origin. Before every click the tool waits until the window stops moving (scroll animations, menus opening), so clicks after a scroll land on the settled layout. Typing only reaches a focused text field: click the field in the same batch first. save_landmark remembers a point; click {landmark} re-checks its pixels and window size and refuses on mismatch.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -695,9 +695,12 @@ impl ComputerUseLinux {
                     height: h,
                     image: Some(std::sync::Arc::new(after.clone())),
                 };
+                // Bounded images: a full look costs no more than ~1.3K visual tokens.
                 let options = ScreenshotPayloadOptions {
                     format: Some(ScreenshotOutputFormat::Jpeg),
                     quality: Some(75),
+                    max_width: Some(1280),
+                    max_height: Some(1280),
                     ..Default::default()
                 };
                 if let Ok(capture) = crop_capture(raw, x, y, cw, ch)
@@ -716,6 +719,13 @@ impl ComputerUseLinux {
             }
         }
 
+        // The title after the steps shows navigation without needing an image.
+        let title_after = list_windows()
+            .await
+            .ok()
+            .and_then(|windows| windows.into_iter().find(|w| w.window_id == window.window_id))
+            .and_then(|w| w.title)
+            .or_else(|| window.title.clone());
         let summary = serde_json::json!({
             "ok": all_ok && expect_passed != Some(false),
             "steps": step_results,
@@ -725,7 +735,7 @@ impl ComputerUseLinux {
             "expect_passed": expect_passed,
             "landmarks": landmark_checks,
             "image": image_note,
-            "window": {"window_id": window.window_id, "app": app, "title": window.title},
+            "window": {"window_id": window.window_id, "app": app, "title": title_after},
         });
         content.push(ContentBlock::text(summary.to_string()));
         Ok(CallToolResult::success(content))
@@ -3036,6 +3046,20 @@ impl ComputerUseLinux {
         Ok(std::sync::Arc::try_unwrap(image).unwrap_or_else(|shared| (*shared).clone()))
     }
 
+    /// Poll the window until two frames 80 ms apart match, for at most 1.2 s.
+    async fn wait_until_still(&self, window: &WindowInfo) {
+        let deadline = std::time::Instant::now() + Duration::from_millis(1200);
+        let Ok(mut previous) = self.capture_window_frame(window).await else { return };
+        while std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(80)).await;
+            let Ok(current) = self.capture_window_frame(window).await else { return };
+            if crate::act::changed_region(&previous, &current).is_none() {
+                return;
+            }
+            previous = current;
+        }
+    }
+
     /// Run one `act` step through the existing input tools. Returns a short
     /// label and Ok(message) or Err(reason).
     async fn run_act_step(
@@ -3051,6 +3075,9 @@ impl ComputerUseLinux {
         };
         match step {
             ActStep::Click { x, y, landmark, button, click_count } => {
+                // Wait for the window to stop moving so the click hits the
+                // settled layout, not a scroll or menu mid-animation.
+                self.wait_until_still(window).await;
                 let (cx, cy, label) = match landmark {
                     Some(name) => {
                         let frame = match self.capture_window_frame(window).await {
