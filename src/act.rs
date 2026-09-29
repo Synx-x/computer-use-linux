@@ -338,3 +338,141 @@ mod tests {
         assert!(hash_distance(&a, &b).unwrap() > HASH_TOLERANCE);
     }
 }
+
+// ---- Text targets -------------------------------------------------------
+
+/// A run of words on screen whose text matches a requested label.
+#[derive(Debug, Clone, Serialize)]
+pub struct TextMatch {
+    pub text: String,
+    /// Centre of the matched words, window-relative, in capture pixels.
+    pub x: u32,
+    pub y: u32,
+    /// 1.0 for an exact match, lower for a contained or near match.
+    pub score: f64,
+}
+
+/// Read words with Tesseract inside `region` of `frame`, then return every
+/// run of words that matches `target`, best first.
+pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &str) -> Result<Vec<TextMatch>> {
+    let (rx, ry, rw, rh) = region;
+    // Small UI text reads far better at twice the size.
+    let crop = frame
+        .crop_imm(rx, ry, rw, rh)
+        .resize_exact(rw * 2, rh * 2, FilterType::Triangle)
+        .to_luma8();
+    let path = std::env::temp_dir().join(format!("cul-ocr-{}-{}.png", std::process::id(), now_secs()));
+    crop.save(&path).context("failed to write the OCR crop")?;
+    let output = std::process::Command::new("tesseract")
+        .arg(&path)
+        .args(["-", "--psm", "11", "tsv"])
+        .env("OMP_THREAD_LIMIT", "1")
+        .output();
+    let _ = fs::remove_file(&path);
+    let output = output.context("failed to run tesseract (install the tesseract package)")?;
+    if !output.status.success() {
+        anyhow::bail!("tesseract exited with {}", output.status);
+    }
+
+    // Group recognised words into lines, keyed by block, paragraph and line.
+    let mut lines: Vec<((String, String, String), Vec<(String, u32, u32, u32, u32)>)> = Vec::new();
+    for row in String::from_utf8_lossy(&output.stdout).lines().skip(1) {
+        let cols: Vec<&str> = row.split('\t').collect();
+        if cols.len() < 12 || cols[0] != "5" || cols[11].trim().is_empty() {
+            continue;
+        }
+        let conf: f64 = cols[10].parse().unwrap_or(-1.0);
+        if conf < 30.0 {
+            continue;
+        }
+        let key = (cols[2].to_string(), cols[3].to_string(), cols[4].to_string());
+        let nums: Vec<u32> = cols[6..10].iter().map(|v| v.parse().unwrap_or(0)).collect();
+        let word = (cols[11].trim().to_string(), nums[0], nums[1], nums[2], nums[3]);
+        match lines.iter_mut().find(|(k, _)| *k == key) {
+            Some((_, words)) => words.push(word),
+            None => lines.push((key, vec![word])),
+        }
+    }
+
+    let want = normalize(target);
+    let want_len = want.split(' ').count().max(1);
+    let mut found: Vec<TextMatch> = Vec::new();
+    for (_, words) in &lines {
+        for start in 0..words.len() {
+            for len in 1..=(want_len + 1).min(words.len() - start) {
+                let run = &words[start..start + len];
+                let text = run.iter().map(|w| w.0.as_str()).collect::<Vec<_>>().join(" ");
+                let got = normalize(&text);
+                let score = if got == want {
+                    1.0
+                } else if len == want_len && similarity(&got, &want) >= 0.85 {
+                    similarity(&got, &want)
+                } else {
+                    continue;
+                };
+                let left = run.iter().map(|w| w.1).min().unwrap_or(0);
+                let top = run.iter().map(|w| w.2).min().unwrap_or(0);
+                let right = run.iter().map(|w| w.1 + w.3).max().unwrap_or(0);
+                let bottom = run.iter().map(|w| w.2 + w.4).max().unwrap_or(0);
+                found.push(TextMatch {
+                    text,
+                    x: rx + (left + right) / 4,
+                    y: ry + (top + bottom) / 4,
+                    score,
+                });
+            }
+        }
+    }
+    found.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    // One screen spot per match: drop runs that land on an already-kept point.
+    let mut kept: Vec<TextMatch> = Vec::new();
+    for candidate in found {
+        if !kept.iter().any(|k| k.x.abs_diff(candidate.x) < 12 && k.y.abs_diff(candidate.y) < 8) {
+            kept.push(candidate);
+        }
+    }
+    Ok(kept)
+}
+
+fn normalize(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_alphanumeric() || c == '.' { c.to_ascii_lowercase() } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Levenshtein similarity from 0 to 1.
+fn similarity(a: &str, b: &str) -> f64 {
+    let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
+    }
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for i in 1..=a.len() {
+        let mut cur = vec![i; b.len() + 1];
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        prev = cur;
+    }
+    1.0 - prev[b.len()] as f64 / a.len().max(b.len()) as f64
+}
+
+#[cfg(test)]
+mod text_tests {
+    use super::*;
+
+    #[test]
+    fn normalize_ignores_case_and_punctuation() {
+        assert_eq!(normalize("Gemini 3.1 Flash-Lite!"), "gemini 3.1 flash lite");
+    }
+
+    #[test]
+    fn similarity_tolerates_one_ocr_slip() {
+        assert!(similarity("gemini 3.1 flash lite", "gemini 3.1 flash 1ite") >= 0.85);
+        assert!(similarity("usage", "billing") < 0.5);
+    }
+}

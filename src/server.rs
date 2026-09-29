@@ -619,7 +619,7 @@ impl ComputerUseLinux {
 
     #[tool(
         name = "act",
-        description = "Act and verify in ONE call. Prefer this over click/press_key/type_text/screenshot. How to use it well: (1) Look once with steps=[] and observe=\"full\" to learn the layout. (2) Then put a whole sub-task in one call: e.g. [click menu, wait 300, click option, wait 800, click column header] with expect=\"change\". Do not send one click per call. (3) Enforced: a batch returns only the changed area. observe=\"full\" works only with steps=[] or right after a failed check, otherwise the server downgrades it to delta. (4) Enforced: every batch defaults to expect=\"change\". Read steps[].ok, changed, expect_passed and window.title (after the steps). When a batch fails, the server refuses further input to that window, including click/press_key/type_text, until you look with steps=[]. Coordinates are window-relative in capture pixels: image pixels / image.scale + image.crop origin. Before every click the tool waits until the window stops moving (scroll animations, menus opening), so clicks after a scroll land on the settled layout. Typing only reaches a focused text field: click the field in the same batch first. save_landmark remembers a point; click {landmark} re-checks its pixels and window size and refuses on mismatch.",
+        description = "Act and verify in ONE call. Prefer this over click/press_key/type_text/screenshot. How to use it well: (1) Look once with steps=[] and observe=\"full\" to learn the layout. (2) Then put a whole sub-task in one call: e.g. [click menu, wait 300, click option, wait 800, click column header] with expect=\"change\". Do not send one click per call. (3) Enforced: a batch returns only the changed area. observe=\"full\" works only with steps=[] or right after a failed check, otherwise the server downgrades it to delta. (4) Enforced: every batch defaults to expect=\"change\". Read steps[].ok, changed, expect_passed and window.title (after the steps). When a batch fails, the server refuses further input to that window, including click/press_key/type_text, until you look with steps=[]. Coordinates are window-relative in capture pixels: image pixels / image.scale + image.crop origin. Before every click the tool waits until the window stops moving (scroll animations, menus opening), so clicks after a scroll land on the settled layout. Typing only reaches a focused text field: click the field in the same batch first. click_text {text} clicks visible text read from the screen: after a step that opens a menu or dialog, it searches only what just appeared, so [click dropdown, click_text \"Gemini 3.1 Flash Lite\"] is ONE call. Prefer click_text over coordinates for any labelled control; it fails and lists the matches when the text is missing or ambiguous. save_landmark remembers a point; click {landmark} re-checks its pixels and window size and refuses on mismatch.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -677,7 +677,9 @@ impl ComputerUseLinux {
         let mut landmark_checks = Vec::new();
         let mut all_ok = true;
         for step in &params.steps {
-            let (label, outcome) = self.run_act_step(step, &window, &app, &mut landmark_checks).await;
+            let (label, outcome) = self
+                .run_act_step(step, &window, &app, &mut landmark_checks, before.as_ref())
+                .await;
             let ok = outcome.is_ok();
             step_results.push(serde_json::json!({
                 "step": label,
@@ -2763,6 +2765,18 @@ enum ActStep {
         #[serde(default)]
         click_count: Option<u32>,
     },
+    /// Click visible text, read from the screen. By default it searches only
+    /// what changed during this batch (a menu or dialog the batch opened),
+    /// falling back to the whole window when nothing changed.
+    ClickText {
+        text: String,
+        /// "new" (default) searches what changed in this batch, "window" everything.
+        #[serde(default)]
+        scope: Option<String>,
+        /// Which match to click when the text appears more than once (1-based).
+        #[serde(default)]
+        nth: Option<u32>,
+    },
     /// Press a key or chord, same grammar as press_key.
     Key { key: String },
     /// Type literal text.
@@ -3153,6 +3167,7 @@ impl ComputerUseLinux {
         window: &WindowInfo,
         app: &str,
         landmark_checks: &mut Vec<crate::act::LandmarkCheck>,
+        before: Option<&image::DynamicImage>,
     ) -> (String, std::result::Result<String, String>) {
         let wid = window.window_id;
         let action = |output: ActionOutput| {
@@ -3189,6 +3204,48 @@ impl ComputerUseLinux {
                 match params {
                     Ok(params) => (label, action(self.click(Parameters(params)).await.0)),
                     Err(e) => (label, Err(format!("bad click step: {e}"))),
+                }
+            }
+            ActStep::ClickText { text, scope, nth } => {
+                let label = format!("click text {text:?}");
+                self.wait_until_still(window).await;
+                let frame = match self.capture_window_frame(window).await {
+                    Ok(frame) => frame,
+                    Err(e) => return (label, Err(format!("capture failed: {e:#}"))),
+                };
+                let (w, h) = (frame.width(), frame.height());
+                let whole = (0, 0, w, h);
+                let region = match (scope.as_deref().unwrap_or("new"), before) {
+                    ("new", Some(before)) => crate::act::changed_region(before, &frame)
+                        .map(|r| crate::act::padded(r, w, h))
+                        .unwrap_or(whole),
+                    _ => whole,
+                };
+                let matches = match crate::act::find_text(&frame, region, text) {
+                    Ok(matches) => matches,
+                    Err(e) => return (label, Err(format!("text search failed: {e:#}"))),
+                };
+                let chosen = match (nth, matches.len()) {
+                    (_, 0) => return (label, Err(format!("no text matching {text:?} in the searched area {region:?}"))),
+                    (Some(n), count) if (*n as usize) >= 1 && (*n as usize) <= count => &matches[*n as usize - 1],
+                    (Some(n), count) => return (label, Err(format!("nth {n} requested but only {count} matches"))),
+                    (None, 1) => &matches[0],
+                    (None, _) if matches[0].score > matches[1].score + 0.1 => &matches[0],
+                    (None, count) => {
+                        let seen: Vec<String> = matches.iter().map(|m| format!("{:?} at {},{}", m.text, m.x, m.y)).collect();
+                        return (label, Err(format!("{count} matches for {text:?}, pass nth: {}", seen.join("; "))));
+                    }
+                };
+                let params = serde_json::from_value::<ClickParams>(serde_json::json!({
+                    "window_id": wid, "relative": true, "x": chosen.x, "y": chosen.y,
+                }));
+                match params {
+                    Ok(params) => {
+                        let result = action(self.click(Parameters(params)).await.0);
+                        let note = format!("clicked {:?} at {},{} (score {:.2})", chosen.text, chosen.x, chosen.y, chosen.score);
+                        (label, result.map(|_| note))
+                    }
+                    Err(e) => (label, Err(format!("bad click_text step: {e}"))),
                 }
             }
             ActStep::Key { key } => {
