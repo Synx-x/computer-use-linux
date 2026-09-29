@@ -13,7 +13,8 @@ use crate::remote_desktop::{
     ScrollDirection,
 };
 use crate::screenshot::{
-    capture_screenshot_raw, prepare_screenshot_payload, RawScreenshotCapture, ScreenshotCapture,
+    capture_screenshot_raw, crop_capture, prepare_screenshot_payload, RawScreenshotCapture,
+    ScreenshotCapture,
     ScreenshotOutputFormat, ScreenshotPayloadOptions,
 };
 use crate::terminal::{terminal_paste_shortcut, TerminalPasteShortcut};
@@ -568,23 +569,14 @@ impl ComputerUseLinux {
                             None,
                         )
                     })?;
-                let (bytes, width, height) = crop_png(&raw_capture.bytes, x, y, width, height)
+                let cropped = crop_capture(raw_capture, x.max(0) as u32, y.max(0) as u32, width, height)
                     .map_err(|error| {
                         ErrorData::internal_error(
-                            format!("targeted screenshot crop failed: {error}"),
+                            format!("targeted screenshot crop failed: {error:#}"),
                             None,
                         )
                     })?;
-                (
-                    RawScreenshotCapture {
-                        mime_type: raw_capture.mime_type,
-                        bytes,
-                        source: raw_capture.source,
-                        width,
-                        height,
-                    },
-                    true,
-                )
+                (cropped, true)
             }
             None => (raw_capture, false),
         };
@@ -4271,15 +4263,8 @@ fn prepare_app_state_screenshot(
     }
     if let Some(rect) = crop {
         let (x, y, width, height) = clip_capture_rect(rect, raw.width, raw.height)?;
-        let (bytes, width, height) = crop_png(&raw.bytes, x, y, width, height)
-            .map_err(|error| anyhow::anyhow!("targeted screenshot crop failed: {error}"))?;
-        raw = RawScreenshotCapture {
-            mime_type: raw.mime_type,
-            bytes,
-            source: raw.source,
-            width,
-            height,
-        };
+        raw = crop_capture(raw, x.max(0) as u32, y.max(0) as u32, width, height)
+            .map_err(|error| anyhow::anyhow!("targeted screenshot crop failed: {error:#}"))?;
     }
     prepare_screenshot_payload(raw, options)
 }
@@ -4502,6 +4487,7 @@ fn apply_window_relative_scroll_coordinates(
 
 /// Crop a PNG image to `(x, y, w, h)` (clamped to the image), returning the
 /// re-encoded PNG and the actual cropped dimensions.
+#[cfg(test)]
 fn crop_png(
     raw: &[u8],
     x: i32,
@@ -4874,10 +4860,40 @@ async fn run_ydotool(args: &[String]) -> std::result::Result<Output, String> {
     }
 }
 
+/// ydotool's own defaults (20 ms hold, 20 ms gap) cost 40 ms per character.
+/// 4 ms each types about five times faster; override with
+/// COMPUTER_USE_LINUX_TYPE_KEY_DELAY_MS / COMPUTER_USE_LINUX_TYPE_KEY_HOLD_MS
+/// for an app that drops keys at that rate.
+const YDOTOOL_TYPE_KEY_DELAY_MS: u64 = 4;
+const YDOTOOL_TYPE_KEY_HOLD_MS: u64 = 4;
+
+fn ydotool_type_timing_ms() -> (u64, u64) {
+    let read = |name: &str, default: u64| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .map(|value| value.min(200))
+            .unwrap_or(default)
+    };
+    (
+        read("COMPUTER_USE_LINUX_TYPE_KEY_DELAY_MS", YDOTOOL_TYPE_KEY_DELAY_MS),
+        read("COMPUTER_USE_LINUX_TYPE_KEY_HOLD_MS", YDOTOOL_TYPE_KEY_HOLD_MS),
+    )
+}
+
 async fn run_ydotool_type_text(text: &str) -> std::result::Result<Output, String> {
     let support = ydotool::ensure_supported_async().await?;
     let mut command = TokioCommand::new(&support.executable);
-    command.args(["type", "--file", "-"]);
+    let (delay_ms, hold_ms) = ydotool_type_timing_ms();
+    command.args([
+        "type".to_string(),
+        "--key-delay".to_string(),
+        delay_ms.to_string(),
+        "--key-hold".to_string(),
+        hold_ms.to_string(),
+        "--file".to_string(),
+        "-".to_string(),
+    ]);
     if let Some(socket) = ydotool_socket() {
         command.env("YDOTOOL_SOCKET", socket);
     }
@@ -5863,6 +5879,7 @@ mod tests {
             source: "test".to_string(),
             width: 400,
             height: 200,
+            image: None,
         };
         let capture = prepare_app_state_screenshot(
             raw,
@@ -5892,6 +5909,7 @@ mod tests {
             source: "test".to_string(),
             width: 400,
             height: 200,
+            image: None,
         };
 
         let error =
@@ -5909,6 +5927,7 @@ mod tests {
             source: "test".to_string(),
             width: 400,
             height: 200,
+            image: None,
         };
         let capture = prepare_app_state_screenshot(
             raw,
@@ -5964,6 +5983,7 @@ mod tests {
             source: "test".to_string(),
             width: 64,
             height: 32,
+            image: None,
         };
         let capture =
             prepare_app_state_screenshot(raw, None, false, ScreenshotPayloadOptions::default())
@@ -6162,6 +6182,7 @@ mod tests {
                 source: "test".to_string(),
                 width,
                 height,
+                image: None,
             },
             ScreenshotPayloadOptions {
                 max_width: Some(100),

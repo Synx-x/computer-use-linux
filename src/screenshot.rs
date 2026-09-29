@@ -4,6 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_util::StreamExt;
 use image::codecs::jpeg::JpegEncoder;
+use image::codecs::png::{CompressionType, PngEncoder};
 use image::imageops::FilterType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,7 @@ use std::{
     io::Cursor,
     path::{Path, PathBuf},
     process::Stdio,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::process::Command;
@@ -37,10 +39,15 @@ const MIN_SCREENSHOT_MAX_BYTES: usize = 1024;
 #[derive(Debug, Clone)]
 pub struct RawScreenshotCapture {
     pub mime_type: String,
+    /// Encoded PNG bytes. Empty when `image` already holds the decoded pixels.
     pub bytes: Vec<u8>,
     pub source: String,
     pub width: u32,
     pub height: u32,
+    /// Decoded pixels, when the backend captured raw frames (grim PPM). Cropping
+    /// and encoding then skip the PNG encode/decode round trips, which cost over
+    /// a second on a multi-monitor desktop.
+    pub image: Option<Arc<image::DynamicImage>>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -244,6 +251,7 @@ async fn capture_with_x11() -> Result<RawScreenshotCapture> {
         source: "x11".to_string(),
         width,
         height,
+        image: None,
     })
 }
 
@@ -280,31 +288,36 @@ pub fn prepare_screenshot_payload(
     raw: RawScreenshotCapture,
     options: ScreenshotPayloadOptions,
 ) -> Result<ScreenshotCapture> {
-    if raw.bytes.is_empty() {
-        bail!("screenshot file was empty");
-    }
-    let (coordinate_width, coordinate_height) = png_dimensions(&raw.bytes)?;
-    let original_bytes = raw.bytes.len();
     let options = options.resolve();
-    let (target_width, target_height) =
-        target_dimensions(coordinate_width, coordinate_height, options);
-
-    let (bytes, width, height) = if options.format == ScreenshotOutputFormat::Png
-        && target_width == coordinate_width
-        && target_height == coordinate_height
-        && original_bytes <= options.max_bytes
-    {
-        (raw.bytes, coordinate_width, coordinate_height)
-    } else {
-        encode_screenshot_to_fit_bytes(
-            &raw.bytes,
-            coordinate_width,
-            coordinate_height,
-            target_width,
-            target_height,
-            options,
-        )?
-    };
+    let (bytes, width, height, coordinate_width, coordinate_height, original_bytes) =
+        if let Some(img) = raw.image.as_deref() {
+            // Decoded pixels: encode once, straight to the requested format.
+            let (cw, ch) = (img.width(), img.height());
+            let (tw, th) = target_dimensions(cw, ch, options);
+            let (bytes, w, h) = encode_image_to_fit_bytes(img, None, cw, ch, tw, th, options)?;
+            let original = img.as_bytes().len();
+            (bytes, w, h, cw, ch, original)
+        } else {
+            if raw.bytes.is_empty() {
+                bail!("screenshot file was empty");
+            }
+            let (cw, ch) = png_dimensions(&raw.bytes)?;
+            let original = raw.bytes.len();
+            let (tw, th) = target_dimensions(cw, ch, options);
+            if options.format == ScreenshotOutputFormat::Png
+                && tw == cw
+                && th == ch
+                && original <= options.max_bytes
+            {
+                (raw.bytes, cw, ch, cw, ch, original)
+            } else {
+                let img = image::load_from_memory_with_format(&raw.bytes, image::ImageFormat::Png)
+                    .context("failed to decode screenshot PNG for encoding")?;
+                let (bytes, w, h) =
+                    encode_image_to_fit_bytes(&img, Some(&raw.bytes), cw, ch, tw, th, options)?;
+                (bytes, w, h, cw, ch, original)
+            }
+        };
 
     let encoded = STANDARD.encode(&bytes);
     let scale = if coordinate_width == 0 {
@@ -424,48 +437,85 @@ const GRIM_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Full-desktop capture via `grim`, direct from the wlroots compositor.
 /// No portal dialog. Needs a Wayland session and the `grim` binary.
+///
+/// grim writes raw PPM to stdout rather than PNG to a file. PNG compression of
+/// a two-monitor desktop takes grim about a second of CPU; PPM takes ~70 ms.
+/// The frame is decoded once here and kept in `image`, so later crop and resize
+/// steps work on pixels directly.
 async fn capture_with_grim() -> Result<RawScreenshotCapture> {
     if is_native_x11_session() {
         bail!("not a Wayland session (grim needs WAYLAND_DISPLAY)");
     }
-    let path = temp_png_path("grim");
-    let filename = path
-        .to_str()
-        .context("temporary screenshot path is not valid UTF-8")?;
 
     let mut command = Command::new("grim");
     command
-        .arg(filename)
+        .args(["-t", "ppm", "-"])
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
+        .stdout(Stdio::piped())
         .stderr(Stdio::null());
-    let mut child = match crate::command_runner::spawn_retrying_busy(&mut command).await {
-        Ok(child) => child,
-        Err(error) => {
-            cleanup_requested_path(&path);
-            return Err(error).context("failed to spawn grim");
-        }
-    };
+    let child = crate::command_runner::spawn_retrying_busy(&mut command)
+        .await
+        .context("failed to spawn grim")?;
 
-    let status = match tokio::time::timeout(GRIM_TIMEOUT, child.wait()).await {
-        Ok(Ok(status)) => status,
-        Ok(Err(error)) => {
-            cleanup_requested_path(&path);
-            return Err(error).context("failed to wait for grim");
-        }
-        Err(_) => {
-            let _ = child.kill().await;
-            cleanup_requested_path(&path);
-            bail!("grim timed out");
-        }
+    let output = match tokio::time::timeout(GRIM_TIMEOUT, child.wait_with_output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => return Err(error).context("failed to wait for grim"),
+        Err(_) => bail!("grim timed out"),
     };
-
-    if !status.success() {
-        cleanup_requested_path(&path);
-        bail!("grim exited with {status}");
+    if !output.status.success() {
+        bail!("grim exited with {}", output.status);
+    }
+    if output.stdout.is_empty() {
+        bail!("grim produced no image data");
     }
 
-    read_png_as_capture(path.clone(), "grim", ScreenshotCleanup::DeletePath(path)).await
+    let img = tokio::task::spawn_blocking(move || {
+        image::load_from_memory_with_format(&output.stdout, image::ImageFormat::Pnm)
+    })
+    .await
+    .context("grim decoder task failed")?
+    .context("failed to decode grim PPM output")?;
+
+    Ok(RawScreenshotCapture {
+        mime_type: "image/png".to_string(),
+        bytes: Vec::new(),
+        source: "grim".to_string(),
+        width: img.width(),
+        height: img.height(),
+        image: Some(Arc::new(img)),
+    })
+}
+
+/// Crop a capture to a rectangle, keeping decoded pixels when present.
+pub fn crop_capture(
+    raw: RawScreenshotCapture,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> Result<RawScreenshotCapture> {
+    let img = match raw.image {
+        Some(img) => img,
+        None => Arc::new(
+            image::load_from_memory_with_format(&raw.bytes, image::ImageFormat::Png)
+                .context("failed to decode screenshot PNG for cropping")?,
+        ),
+    };
+    let (iw, ih) = (img.width(), img.height());
+    if x >= iw || y >= ih {
+        bail!("crop origin outside image");
+    }
+    let width = width.min(iw - x);
+    let height = height.min(ih - y);
+    let cropped = img.crop_imm(x, y, width, height);
+    Ok(RawScreenshotCapture {
+        mime_type: raw.mime_type,
+        bytes: Vec::new(),
+        source: raw.source,
+        width,
+        height,
+        image: Some(Arc::new(cropped)),
+    })
 }
 
 /// Upper bound on how long we wait for `gnome-screenshot` before killing it.
@@ -590,6 +640,7 @@ fn read_png_as_capture_inner(path: &Path, source: &str) -> Result<RawScreenshotC
         source: source.to_string(),
         width,
         height,
+        image: None,
     })
 }
 
@@ -610,30 +661,29 @@ fn target_dimensions(
     (target_width, target_height)
 }
 
-fn encode_screenshot_to_fit_bytes(
-    raw: &[u8],
+/// Encode `img`, shrinking until it fits `max_bytes`. `png_passthrough` holds
+/// the already-encoded PNG, reused when the output is an unscaled PNG.
+fn encode_image_to_fit_bytes(
+    img: &image::DynamicImage,
+    png_passthrough: Option<&[u8]>,
     original_width: u32,
     original_height: u32,
     mut target_width: u32,
     mut target_height: u32,
     options: ResolvedScreenshotPayloadOptions,
 ) -> Result<(Vec<u8>, u32, u32)> {
-    let img = image::load_from_memory_with_format(raw, image::ImageFormat::Png)
-        .context("failed to decode screenshot PNG for encoding")?;
-
     loop {
-        let bytes = if options.format == ScreenshotOutputFormat::Png
-            && target_width == original_width
-            && target_height == original_height
+        let unscaled = target_width == original_width && target_height == original_height;
+        let bytes = if let (true, ScreenshotOutputFormat::Png, Some(raw)) =
+            (unscaled, options.format, png_passthrough)
         {
             raw.to_vec()
         } else {
-            let output = if target_width == original_width && target_height == original_height {
-                img.clone()
+            if unscaled {
+                encode_image(img, options)?
             } else {
-                img.resize_exact(target_width, target_height, FilterType::Lanczos3)
-            };
-            encode_image(&output, options)?
+                encode_image(&img.resize_exact(target_width, target_height, FilterType::Lanczos3), options)?
+            }
         };
 
         if bytes.len() <= options.max_bytes {
@@ -664,7 +714,14 @@ fn encode_image(
     let mut out = Vec::new();
     match options.format {
         ScreenshotOutputFormat::Png => {
-            img.write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
+            // Fast compression: a few percent larger than the default, several
+            // times quicker, and the byte cap still bounds the payload.
+            let encoder = PngEncoder::new_with_quality(
+                &mut out,
+                CompressionType::Fast,
+                image::codecs::png::FilterType::Adaptive,
+            );
+            img.write_with_encoder(encoder)
                 .context("failed to encode screenshot PNG")?;
         }
         ScreenshotOutputFormat::Jpeg => {
@@ -817,6 +874,7 @@ mod tests {
             source: "test".to_string(),
             width,
             height,
+            image: None,
         }
     }
 
