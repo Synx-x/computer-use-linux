@@ -611,6 +611,126 @@ impl ComputerUseLinux {
         ]))
     }
 
+    #[tool(
+        name = "act",
+        description = "Run a batch of input steps against one window, then report what changed, so one call both acts and verifies. Steps: click (window-relative x/y or a saved landmark name), key, type, scroll, wait, save_landmark. The batch stops at the first failed step. After a settle delay it diffs the window against the pre-action frame and returns changed (bool), the changed box, an expect pass/fail when expect is set, and (observe=delta, the default) an image cropped to only the changed area. Landmarks are checked against the live pixels before a landmark click; a mismatch refuses the click and returns the reason, so a moved, resized or rezoomed window cannot cause a blind misclick.",
+        annotations(
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = true
+        )
+    )]
+    async fn act(&self, Parameters(params): Parameters<ActParams>) -> Result<CallToolResult, ErrorData> {
+        let internal = |message: String| ErrorData::internal_error(message, None);
+        let target = WindowTarget { window_id: Some(params.window_id), ..Default::default() };
+        let window = {
+            let windows = list_windows().await.map_err(|e| internal(format!("act: {e:#}")))?;
+            resolve_window_target(&windows, &target)
+                .map_err(|e| internal(format!("act: {e:#}")))?
+                .clone()
+        };
+        let app = window
+            .app_id
+            .clone()
+            .or_else(|| window.wm_class.clone())
+            .unwrap_or_else(|| "unknown".to_string());
+        let observe = params.observe.as_deref().unwrap_or("delta").to_ascii_lowercase();
+        let needs_frames = observe != "none" || params.expect.is_some();
+
+        // Focus once up front so the before-frame shows the window on top.
+        let _ = focus_window_target(&target).await;
+        let before = if needs_frames { self.capture_window_frame(&window).await.ok() } else { None };
+
+        let mut step_results = Vec::new();
+        let mut landmark_checks = Vec::new();
+        let mut all_ok = true;
+        for step in &params.steps {
+            let (label, outcome) = self.run_act_step(step, &window, &app, &mut landmark_checks).await;
+            let ok = outcome.is_ok();
+            step_results.push(serde_json::json!({
+                "step": label,
+                "ok": ok,
+                "message": match &outcome { Ok(m) | Err(m) => m.clone() },
+            }));
+            if !ok {
+                all_ok = false;
+                break;
+            }
+        }
+
+        let settle = params.settle_ms.unwrap_or(150).min(5_000);
+        let (mut changed, mut region, mut frame_after) = (None, None, None);
+        if needs_frames {
+            tokio::time::sleep(Duration::from_millis(settle)).await;
+            if let Ok(after) = self.capture_window_frame(&window).await {
+                if let Some(before) = before.as_ref() {
+                    region = crate::act::changed_region(before, &after);
+                    changed = Some(region.is_some());
+                }
+                frame_after = Some(after);
+            }
+        }
+        let expect_passed = match (params.expect.as_deref(), changed) {
+            (Some("change"), Some(c)) => Some(c),
+            (Some("no_change"), Some(c)) => Some(!c),
+            _ => None,
+        };
+
+        let mut content = Vec::new();
+        let mut image_note = serde_json::Value::Null;
+        if let Some(after) = frame_after.as_ref() {
+            let (w, h) = (after.width(), after.height());
+            let crop = match (observe.as_str(), region) {
+                ("full", _) => Some((0, 0, w, h)),
+                ("delta", Some(r)) => Some(crate::act::padded(r, w, h)),
+                _ => None,
+            };
+            if let Some((x, y, cw, ch)) = crop {
+                let raw = RawScreenshotCapture {
+                    mime_type: "image/png".to_string(),
+                    bytes: Vec::new(),
+                    source: "act".to_string(),
+                    width: w,
+                    height: h,
+                    image: Some(std::sync::Arc::new(after.clone())),
+                };
+                let options = ScreenshotPayloadOptions {
+                    format: Some(ScreenshotOutputFormat::Jpeg),
+                    quality: Some(75),
+                    ..Default::default()
+                };
+                if let Ok(capture) = crop_capture(raw, x, y, cw, ch)
+                    .and_then(|cropped| prepare_screenshot_payload(cropped, options))
+                {
+                    image_note = serde_json::json!({
+                        "crop": {"x": x, "y": y, "width": cw, "height": ch},
+                        "scale": capture.scale,
+                        "note": "crop origin is window-relative; divide image pixels by scale and add the origin to get click coordinates",
+                    });
+                    content.push(ContentBlock::image(
+                        data_url_payload(&capture.data_url),
+                        capture.mime_type,
+                    ));
+                }
+            }
+        }
+
+        let summary = serde_json::json!({
+            "ok": all_ok && expect_passed != Some(false),
+            "steps": step_results,
+            "changed": changed,
+            "changed_region": region,
+            "expect": params.expect,
+            "expect_passed": expect_passed,
+            "landmarks": landmark_checks,
+            "image": image_note,
+            "window": {"window_id": window.window_id, "app": app, "title": window.title},
+        });
+        content.push(ContentBlock::text(summary.to_string()));
+        Ok(CallToolResult::success(content))
+    }
+
     /// Lazily create the uinput absolute pointer, sizing its ABS range to the
     /// logical desktop (the portal screenshot dimensions). Returns `false` if it
     /// can't be created or is disabled via `CU_DISABLE_ABS_POINTER`.
@@ -710,7 +830,10 @@ impl ComputerUseLinux {
                     });
                 }
             };
-            tokio::time::sleep(Duration::from_millis(120)).await;
+            // Let the compositor repaint only when focus actually moved.
+            if focus.as_ref().is_some_and(|focus| !focus.was_already_focused) {
+                tokio::time::sleep(Duration::from_millis(120)).await;
+            }
             // Window-relative coordinates: translate by the window's top-left so
             // the agent can click the pixel it saw in a window-cropped screenshot.
             if params.relative == Some(true) {
@@ -1105,7 +1228,10 @@ impl ComputerUseLinux {
                     });
                 }
             };
-            tokio::time::sleep(Duration::from_millis(120)).await;
+            // Let the compositor repaint only when focus actually moved.
+            if focus.as_ref().is_some_and(|focus| !focus.was_already_focused) {
+                tokio::time::sleep(Duration::from_millis(120)).await;
+            }
             if params.relative == Some(true) {
                 let Some(focus) = focus.as_ref() else {
                     return Json(ActionOutput {
@@ -2555,6 +2681,61 @@ struct GetAppStateOutput {
     message: String,
 }
 
+/// One input step inside an `act` batch.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum ActStep {
+    /// Click window-relative coordinates, or a saved landmark by name.
+    Click {
+        #[serde(default)]
+        x: Option<i32>,
+        #[serde(default)]
+        y: Option<i32>,
+        #[serde(default)]
+        landmark: Option<String>,
+        #[serde(default)]
+        button: Option<String>,
+        #[serde(default)]
+        click_count: Option<u32>,
+    },
+    /// Press a key or chord, same grammar as press_key.
+    Key { key: String },
+    /// Type literal text.
+    Type { text: String },
+    /// Scroll at window-relative coordinates, or the window centre.
+    Scroll {
+        direction: String,
+        #[serde(default)]
+        pages: Option<f64>,
+        #[serde(default)]
+        x: Option<i32>,
+        #[serde(default)]
+        y: Option<i32>,
+    },
+    /// Pause, for example while a page loads.
+    Wait { ms: u64 },
+    /// Remember the window-relative point as a named landmark for this app.
+    SaveLandmark { name: String, x: i32, y: i32 },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct ActParams {
+    /// Compositor window id. Every step targets this window.
+    window_id: u64,
+    /// Steps run in order; the batch stops at the first failure.
+    steps: Vec<ActStep>,
+    /// What to return after the steps: "delta" (default) crops only the
+    /// changed area, "full" returns the whole window, "none" returns no image.
+    #[serde(default)]
+    observe: Option<String>,
+    /// Optional prediction checked after the steps: "change" or "no_change".
+    #[serde(default)]
+    expect: Option<String>,
+    /// Wait before the after-capture, in ms (default 150, max 5000).
+    #[serde(default)]
+    settle_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 struct ClickParams {
     #[serde(default)]
@@ -2843,6 +3024,112 @@ struct ActionOutput {
 }
 
 impl ComputerUseLinux {
+    /// Capture one window as decoded pixels, cropped to its bounds.
+    async fn capture_window_frame(&self, window: &WindowInfo) -> Result<image::DynamicImage> {
+        let raw = capture_screenshot_raw().await?;
+        self.cache_desktop_size(raw.width, raw.height);
+        let (x, y, w, h) = self.window_crop_rect_for_capture(window, &raw).await?;
+        let cropped = crop_capture(raw, x.max(0) as u32, y.max(0) as u32, w, h)?;
+        let image = cropped
+            .image
+            .ok_or_else(|| anyhow::anyhow!("window capture produced no pixels"))?;
+        Ok(std::sync::Arc::try_unwrap(image).unwrap_or_else(|shared| (*shared).clone()))
+    }
+
+    /// Run one `act` step through the existing input tools. Returns a short
+    /// label and Ok(message) or Err(reason).
+    async fn run_act_step(
+        &self,
+        step: &ActStep,
+        window: &WindowInfo,
+        app: &str,
+        landmark_checks: &mut Vec<crate::act::LandmarkCheck>,
+    ) -> (String, std::result::Result<String, String>) {
+        let wid = window.window_id;
+        let action = |output: ActionOutput| {
+            if output.ok { Ok(output.message) } else { Err(output.message) }
+        };
+        match step {
+            ActStep::Click { x, y, landmark, button, click_count } => {
+                let (cx, cy, label) = match landmark {
+                    Some(name) => {
+                        let frame = match self.capture_window_frame(window).await {
+                            Ok(frame) => frame,
+                            Err(e) => return (format!("click {name}"), Err(format!("capture failed: {e:#}"))),
+                        };
+                        let (found, check) = crate::act::check_landmark(app, name, &frame);
+                        let reason = check.reason.clone();
+                        landmark_checks.push(check);
+                        match found {
+                            Some(mark) => (mark.x as i32, mark.y as i32, format!("click landmark {name}")),
+                            None => return (format!("click landmark {name}"), Err(format!("landmark check failed: {reason}"))),
+                        }
+                    }
+                    None => match (x, y) {
+                        (Some(x), Some(y)) => (*x, *y, format!("click {x},{y}")),
+                        _ => return ("click".to_string(), Err("click needs x and y, or a landmark".to_string())),
+                    },
+                };
+                let params = serde_json::from_value::<ClickParams>(serde_json::json!({
+                    "window_id": wid, "relative": true, "x": cx, "y": cy,
+                    "button": button, "click_count": click_count,
+                }));
+                match params {
+                    Ok(params) => (label, action(self.click(Parameters(params)).await.0)),
+                    Err(e) => (label, Err(format!("bad click step: {e}"))),
+                }
+            }
+            ActStep::Key { key } => {
+                let params = serde_json::from_value::<PressKeyParams>(serde_json::json!({
+                    "window_id": wid, "key": key,
+                }));
+                match params {
+                    Ok(params) => (format!("key {key}"), action(self.press_key(Parameters(params)).await.0)),
+                    Err(e) => (format!("key {key}"), Err(format!("bad key step: {e}"))),
+                }
+            }
+            ActStep::Type { text } => {
+                let label = format!("type {} chars", text.chars().count());
+                let params = serde_json::from_value::<TypeTextParams>(serde_json::json!({
+                    "window_id": wid, "text": text,
+                }));
+                match params {
+                    Ok(params) => (label, action(self.type_text(Parameters(params)).await.0)),
+                    Err(e) => (label, Err(format!("bad type step: {e}"))),
+                }
+            }
+            ActStep::Scroll { direction, pages, x, y } => {
+                let mut value = serde_json::json!({
+                    "window_id": wid, "direction": direction, "pages": pages,
+                });
+                if let (Some(x), Some(y)) = (x, y) {
+                    value["relative"] = serde_json::json!(true);
+                    value["x"] = serde_json::json!(x);
+                    value["y"] = serde_json::json!(y);
+                }
+                match serde_json::from_value::<ScrollParams>(value) {
+                    Ok(params) => (format!("scroll {direction}"), action(self.scroll(Parameters(params)).await.0)),
+                    Err(e) => (format!("scroll {direction}"), Err(format!("bad scroll step: {e}"))),
+                }
+            }
+            ActStep::Wait { ms } => {
+                let ms = (*ms).min(30_000);
+                tokio::time::sleep(Duration::from_millis(ms)).await;
+                (format!("wait {ms}ms"), Ok("waited".to_string()))
+            }
+            ActStep::SaveLandmark { name, x, y } => {
+                let label = format!("save landmark {name}");
+                let frame = match self.capture_window_frame(window).await {
+                    Ok(frame) => frame,
+                    Err(e) => return (label, Err(format!("capture failed: {e:#}"))),
+                };
+                match crate::act::save_landmark(app, name, &frame, (*x).max(0) as u32, (*y).max(0) as u32) {
+                    Ok(_) => (label, Ok(format!("saved for {app}"))),
+                    Err(e) => (label, Err(format!("{e:#}"))),
+                }
+            }
+        }
+    }
     fn is_wayland_session(&self) -> bool {
         crate::diagnostics::hydrate_session_bus_env();
         let session_type = env::var("XDG_SESSION_TYPE").ok();
@@ -3084,7 +3371,11 @@ impl ComputerUseLinux {
                     "the requested window could not be focused exactly; refusing to capture unrelated desktop pixels"
                 );
             }
-            sleep(Duration::from_millis(250)).await;
+            // The raised window needs a repaint before capture, unless it
+            // already had focus and nothing changed on screen.
+            if !focus.was_already_focused {
+                sleep(Duration::from_millis(250)).await;
+            }
             focus
                 .focused_window
                 .filter(|window| window.window_id == focus.requested_window.window_id)
@@ -5666,12 +5957,8 @@ fn keycode_for_ascii(value: char) -> Option<u16> {
 }
 
 fn user_id() -> Option<String> {
-    let output = Command::new("id").arg("-u").output().ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|value| !value.is_empty())
+    // SAFETY: getuid has no preconditions and cannot fail.
+    Some(unsafe { libc::getuid() }.to_string())
 }
 
 fn list_process_apps() -> Vec<AppCandidate> {
@@ -6671,6 +6958,7 @@ mod tests {
             focused_window: Some(window),
             exact_window_focused: true,
             app_focused: true,
+            was_already_focused: false,
             backend: KWIN_BACKEND.to_string(),
             note: "test".to_string(),
         };

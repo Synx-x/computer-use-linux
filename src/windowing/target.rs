@@ -23,6 +23,7 @@ pub async fn focus_window_target(target: &WindowTarget) -> Result<WindowFocusRes
     let windows = list_windows().await?;
     let requested_window = resolve_window_target(&windows, target)?.clone();
     ensure_backend_can_focus_target(target, &requested_window)?;
+    let was_already_focused = requested_window.focused;
 
     registry::activate_window(&requested_window).await?;
 
@@ -40,6 +41,7 @@ pub async fn focus_window_target(target: &WindowTarget) -> Result<WindowFocusRes
         focused_window,
         exact_window_focused,
         app_focused,
+        was_already_focused,
         note: "Computer Use activated the requested window through the available window backend, then verified focus through a fresh window query."
             .to_string(),
     })

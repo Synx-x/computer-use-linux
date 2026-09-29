@@ -386,7 +386,24 @@ fn capability_map_with_portal_keyboard(
     }
 }
 
+/// Hydration spawns `systemctl --user show-environment` and walks the process
+/// tree. Every tool call runs it, so repeat it at most once a minute: often
+/// enough to pick up a session that appears after the server started.
+const HYDRATE_INTERVAL_MS: u64 = 60_000;
+static LAST_HYDRATE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 pub fn hydrate_session_bus_env() {
+    use std::sync::atomic::Ordering;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_HYDRATE_MS.load(Ordering::Relaxed);
+    if last != 0 && now_ms.saturating_sub(last) < HYDRATE_INTERVAL_MS {
+        return;
+    }
+    LAST_HYDRATE_MS.store(now_ms, Ordering::Relaxed);
+
     hydrate_common_command_path();
     hydrate_desktop_env_from_process_tree();
     hydrate_desktop_env_from_systemd_user();
@@ -1101,12 +1118,8 @@ fn ydotool_socket_check() -> Check {
 }
 
 fn user_id() -> Option<String> {
-    let output = Command::new("id").arg("-u").output().ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|value| !value.is_empty())
+    // SAFETY: getuid has no preconditions and cannot fail.
+    Some(unsafe { libc::getuid() }.to_string())
 }
 
 fn command_path_check(command: &str) -> Check {

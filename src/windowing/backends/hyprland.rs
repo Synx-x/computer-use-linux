@@ -218,13 +218,31 @@ fn windows_from_hyprland_clients(clients: Vec<HyprlandClient>) -> Result<Vec<Win
     Ok(windows)
 }
 
+/// Which focus dispatcher this Hyprland accepts: 0 unknown, 1 Lua, 2 legacy.
+/// Older builds reject the Lua form with "Invalid dispatcher", so remembering
+/// the working one saves a failed round trip on every focus.
+static FOCUS_DISPATCHER: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
 pub async fn activate_window(window_id: u64) -> Result<()> {
+    use std::sync::atomic::Ordering;
     let address = format!("address:0x{window_id:x}");
     let lua_dispatch = lua_focus_dispatch(&address);
+
+    if FOCUS_DISPATCHER.load(Ordering::Relaxed) == 2 {
+        let legacy_output = hyprctl_output_async(&["dispatch", "focuswindow", &address])
+            .await
+            .with_context(|| format!("failed to run hyprctl dispatch focuswindow {address}"))?;
+        if dispatch_succeeded(&legacy_output) {
+            return Ok(());
+        }
+        FOCUS_DISPATCHER.store(0, Ordering::Relaxed);
+    }
+
     let lua_output = hyprctl_output_async(&["dispatch", &lua_dispatch])
         .await
         .with_context(|| format!("failed to run Hyprland Lua focus dispatcher for {address}"))?;
     if dispatch_succeeded(&lua_output) {
+        FOCUS_DISPATCHER.store(1, Ordering::Relaxed);
         return Ok(());
     }
 
@@ -232,6 +250,7 @@ pub async fn activate_window(window_id: u64) -> Result<()> {
         .await
         .with_context(|| format!("failed to run hyprctl dispatch focuswindow {address}"))?;
     if dispatch_succeeded(&legacy_output) {
+        FOCUS_DISPATCHER.store(2, Ordering::Relaxed);
         Ok(())
     } else {
         bail!(
@@ -266,6 +285,9 @@ fn lua_focus_dispatch(address: &str) -> String {
 }
 
 fn hyprctl_output(args: &[&str]) -> std::io::Result<std::process::Output> {
+    if let Some(output) = hypr_socket_output(args) {
+        return Ok(output);
+    }
     let mut command = StdCommand::new("hyprctl");
     let has_signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
         .ok()
@@ -279,6 +301,9 @@ fn hyprctl_output(args: &[&str]) -> std::io::Result<std::process::Output> {
 }
 
 async fn hyprctl_output_async(args: &[&str]) -> Result<std::process::Output> {
+    if let Some(output) = hypr_socket_output(args) {
+        return Ok(output);
+    }
     let mut command = Command::new("hyprctl");
     let has_signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
         .ok()
@@ -290,6 +315,38 @@ async fn hyprctl_output_async(args: &[&str]) -> Result<std::process::Output> {
     }
     command.args(args);
     command_runner::output(command, "run hyprctl").await
+}
+
+/// Send a hyprctl-style request straight to Hyprland's IPC socket. A request
+/// takes well under a millisecond, against 4-7 ms to spawn `hyprctl`, and a
+/// single tool call makes several. Returns None when the socket is not
+/// reachable, so the caller falls back to spawning `hyprctl`.
+fn hypr_socket_output(args: &[&str]) -> Option<std::process::Output> {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+    use std::os::unix::process::ExitStatusExt;
+
+    let signature = std::env::var("HYPRLAND_INSTANCE_SIGNATURE")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(infer_hyprland_instance_signature)?;
+    let path = xdg_runtime_dir()?.join("hypr").join(signature).join(".socket.sock");
+    let json = args.contains(&"-j");
+    let command = args.iter().filter(|arg| **arg != "-j").copied().collect::<Vec<_>>().join(" ");
+    let request = if json { format!("j/{command}") } else { command };
+
+    let mut stream = UnixStream::connect(path).ok()?;
+    let timeout = Some(std::time::Duration::from_secs(2));
+    stream.set_read_timeout(timeout).ok()?;
+    stream.set_write_timeout(timeout).ok()?;
+    stream.write_all(request.as_bytes()).ok()?;
+    let mut reply = Vec::new();
+    stream.read_to_end(&mut reply).ok()?;
+    Some(std::process::Output {
+        status: std::process::ExitStatus::from_raw(0),
+        stdout: reply,
+        stderr: Vec::new(),
+    })
 }
 
 fn infer_hyprland_instance_signature() -> Option<String> {
