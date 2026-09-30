@@ -38,9 +38,18 @@ def image_size(raw):
     return 0, 0
 
 
-def measure(log, start):
+def is_tool(b, match):
+    if b['name'].startswith('mcp__computer-use-linux'):
+        return b['name'].split('__')[-1]
+    if match and b['name'] == 'Bash' and match in (b.get('input') or {}).get('command', ''):
+        return 'pulse:' + (b['input']['command'].split(match, 1)[1].split() or ['?'])[0]
+    return None
+
+
+def measure(log, start, match=None):
     ts = lambda s: datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
     uses, res, rounds, tokens, first, last, done = {}, {}, set(), 0, None, None, None
+    result_chars = 0
     for line in open(log):
         o = json.loads(line)
         m, t = o.get('message') or {}, o.get('timestamp')
@@ -51,14 +60,20 @@ def measure(log, start):
                 continue
             if b.get('type') == 'text' and 'BENCH-DONE' in b.get('text', ''):
                 done = b['text']
-            if b.get('type') == 'tool_use' and b['name'].startswith('mcp__computer-use-linux'):
-                uses[b['id']] = (b['name'].split('__')[-1], ts(t))
+            name = is_tool(b, match) if b.get('type') == 'tool_use' else None
+            if name:
+                uses[b['id']] = (name, ts(t))
                 rounds.add(m.get('id'))
                 first = first or ts(t)
             if b.get('type') == 'tool_result' and b.get('tool_use_id') in uses:
                 res[b['tool_use_id']] = ts(t)
                 last = ts(t)
-                for c in b.get('content') if isinstance(b.get('content'), list) else []:
+                content = b.get('content')
+                if isinstance(content, str):
+                    result_chars += len(content)
+                for c in content if isinstance(content, list) else []:
+                    if c.get('type') == 'text':
+                        result_chars += len(c.get('text', ''))
                     if c.get('type') == 'image':
                         w, h = image_size(base64.b64decode(c['source']['data']))
                         tokens += math.ceil(w / 28) * math.ceil(h / 28)
@@ -71,6 +86,7 @@ def measure(log, start):
         'calls': len(uses),
         'tool_s': round(sum(res[i] - uses[i][1] for i in res), 1),
         'image_tokens': tokens,
+        'result_chars': result_chars,
         'tools': tools,
         'answer': done,
     }
@@ -84,6 +100,8 @@ def main():
     ap.add_argument('--timeout', type=int, default=900)
     ap.add_argument('--model', default='opus')
     ap.add_argument('--effort', default=None, help='low, medium, high or max')
+    ap.add_argument('--tool-match', default=None,
+                    help='also count Bash calls whose command contains this text, such as pulse_cli.py')
     a = ap.parse_args()
 
     work = f'/tmp/claude-1000/cul-bench-{a.name}'
@@ -114,10 +132,10 @@ def main():
             if not logs:
                 continue
             log = max(logs, key=os.path.getmtime)
-            if measure(log, start)['answer']:
+            if measure(log, start, a.tool_match)['answer']:
                 time.sleep(3)
                 break
-        result = measure(log, start) if log else {'error': 'no session log'}
+        result = measure(log, start, a.tool_match) if log else {'error': 'no session log'}
         result['name'] = a.name
         result['model'] = a.model
         result['effort'] = a.effort
