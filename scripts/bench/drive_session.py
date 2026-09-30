@@ -5,7 +5,7 @@ Splits a pane next to --pane, starts `claude` in a clean work dir, asks it to
 execute DIRECTIVE, waits for BENCH-DONE, then measures the session log:
 wall time, agent rounds, computer-use calls, tool time and visual tokens.
 
-Usage: drive_session.py --pane PANE_ID --directive FILE --name LABEL
+Usage: drive_session.py --pane PANE_ID --directive FILE --name LABEL [--model M] [--effort E]
 """
 import argparse
 import base64
@@ -82,6 +82,8 @@ def main():
     ap.add_argument('--directive', required=True)
     ap.add_argument('--name', required=True)
     ap.add_argument('--timeout', type=int, default=900)
+    ap.add_argument('--model', default='opus')
+    ap.add_argument('--effort', default=None, help='low, medium, high or max')
     a = ap.parse_args()
 
     work = f'/tmp/claude-1000/cul-bench-{a.name}'
@@ -92,7 +94,8 @@ def main():
     split = json.loads(herdr('pane', 'split', a.pane, '--direction', 'right', '--cwd', work, '--no-focus'))
     pane = split['result']['pane']['pane_id']
     try:
-        herdr('pane', 'run', pane, 'claude --permission-mode bypassPermissions --model opus')
+        effort = f' --effort {a.effort}' if a.effort else ''
+        herdr('pane', 'run', pane, f'claude --permission-mode bypassPermissions --model {a.model}{effort}')
         herdr('pane', 'wait-output', pane, '--match', 'bypass permissions on', '--timeout', '60000')
         time.sleep(2)
         herdr('pane', 'send-text', pane,
@@ -116,6 +119,8 @@ def main():
                 break
         result = measure(log, start) if log else {'error': 'no session log'}
         result['name'] = a.name
+        result['model'] = a.model
+        result['effort'] = a.effort
         print(json.dumps(result, indent=2))
     finally:
         herdr('pane', 'close', pane)

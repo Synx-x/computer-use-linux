@@ -34,13 +34,74 @@ pub struct ChangedRegion {
     pub fraction: f64,
 }
 
+/// Share of tiles that may still change while a window counts as quiet. It
+/// absorbs ambient animation that the mask did not catch.
+pub const QUIET_FRACTION: f64 = 0.01;
+
+/// Tiles that change on their own (an animated background, a playing video),
+/// in row-major tile order. Diffs skip them.
+pub type AmbientMask = Vec<bool>;
+
 /// Compare two frames of the same window. Returns None when nothing visibly
 /// changed. A size change counts as a full-frame change.
+#[cfg(test)]
 pub fn changed_region(before: &DynamicImage, after: &DynamicImage) -> Option<ChangedRegion> {
+    changed_region_masked(before, after, None)
+}
+
+/// Build an ambient mask from frames captured while no input was sent. A tile
+/// that changes between any two consecutive frames is ambient, and so are its
+/// neighbours, since animation drifts. Returns None when nothing moved.
+pub fn ambient_mask(frames: &[DynamicImage]) -> Option<AmbientMask> {
+    let first = frames.first()?;
+    let (w, h) = first.dimensions();
+    let (cols, rows) = (w.div_ceil(TILE), h.div_ceil(TILE));
+    let mut hit = vec![false; (cols * rows) as usize];
+    for pair in frames.windows(2) {
+        if pair[1].dimensions() != (w, h) {
+            return None;
+        }
+        let (a, b) = (pair[0].to_luma8(), pair[1].to_luma8());
+        for row in 0..rows {
+            for col in 0..cols {
+                if tile_diff(&a, &b, col * TILE, row * TILE, w, h) > TILE_THRESHOLD {
+                    hit[(row * cols + col) as usize] = true;
+                }
+            }
+        }
+    }
+    if !hit.contains(&true) {
+        return None;
+    }
+    let mut mask = hit.clone();
+    for row in 0..rows as i64 {
+        for col in 0..cols as i64 {
+            if !hit[(row * cols as i64 + col) as usize] {
+                continue;
+            }
+            for (dr, dc) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                let (r, c) = (row + dr, col + dc);
+                if r >= 0 && c >= 0 && r < rows as i64 && c < cols as i64 {
+                    mask[(r * cols as i64 + c) as usize] = true;
+                }
+            }
+        }
+    }
+    Some(mask)
+}
+
+/// Like `changed_region`, but tiles set in `mask` never count as changed.
+pub fn changed_region_masked(
+    before: &DynamicImage,
+    after: &DynamicImage,
+    mask: Option<&[bool]>,
+) -> Option<ChangedRegion> {
     let (w, h) = after.dimensions();
     if before.dimensions() != (w, h) {
         return Some(ChangedRegion { x: 0, y: 0, width: w, height: h, fraction: 1.0 });
     }
+    let cols = w.div_ceil(TILE);
+    let mask = mask.filter(|m| m.len() == (cols * h.div_ceil(TILE)) as usize);
     let a = before.to_luma8();
     let b = after.to_luma8();
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
@@ -48,7 +109,17 @@ pub fn changed_region(before: &DynamicImage, after: &DynamicImage) -> Option<Cha
     for ty in (0..h).step_by(TILE as usize) {
         for tx in (0..w).step_by(TILE as usize) {
             total += 1;
-            if tile_diff(&a, &b, tx, ty, w, h) > TILE_THRESHOLD {
+            if mask.is_some_and(|m| m[((ty / TILE) * cols + tx / TILE) as usize]) {
+                continue;
+            }
+            // An animated page also has slow glows and fades. Comparing tile
+            // structure, not brightness, ignores those but keeps text and edges.
+            let diff = if mask.is_some() {
+                tile_structure_diff(&a, &b, tx, ty, w, h)
+            } else {
+                tile_diff(&a, &b, tx, ty, w, h)
+            };
+            if diff > TILE_THRESHOLD {
                 changed += 1;
                 x0 = x0.min(tx);
                 y0 = y0.min(ty);
@@ -81,6 +152,33 @@ fn tile_diff(a: &GrayImage, b: &GrayImage, tx: u32, ty: u32, w: u32, h: u32) -> 
     } else {
         sum as f64 / count as f64
     }
+}
+
+/// Mean absolute difference after removing each tile's mean brightness, so a
+/// uniform fade or glow scores near zero.
+fn tile_structure_diff(a: &GrayImage, b: &GrayImage, tx: u32, ty: u32, w: u32, h: u32) -> f64 {
+    let (x1, y1) = ((tx + TILE).min(w), (ty + TILE).min(h));
+    let count = f64::from((x1 - tx) * (y1 - ty));
+    if count == 0.0 {
+        return 0.0;
+    }
+    let (mut sa, mut sb) = (0.0, 0.0);
+    for y in ty..y1 {
+        for x in tx..x1 {
+            sa += f64::from(a.get_pixel(x, y)[0]);
+            sb += f64::from(b.get_pixel(x, y)[0]);
+        }
+    }
+    let (ma, mb) = (sa / count, sb / count);
+    let mut sum = 0.0;
+    for y in ty..y1 {
+        for x in tx..x1 {
+            let da = f64::from(a.get_pixel(x, y)[0]) - ma;
+            let db = f64::from(b.get_pixel(x, y)[0]) - mb;
+            sum += (da - db).abs();
+        }
+    }
+    sum / count
 }
 
 /// Grow a region by `DELTA_PADDING`, clamped to the frame.
@@ -208,6 +306,11 @@ fn save_landmarks(landmarks: &HashMap<String, Landmark>) -> Result<()> {
     fs::write(&path, text).with_context(|| format!("failed to write {}", path.display()))
 }
 
+/// Landmark name that caches where a `click_text` label was last clicked.
+pub fn text_landmark_name(text: &str) -> String {
+    format!("text:{}", normalize(text))
+}
+
 /// Save or replace a landmark from the current frame.
 pub fn save_landmark(app: &str, name: &str, frame: &DynamicImage, x: u32, y: u32) -> Result<Landmark> {
     let hash = landmark_hash(frame, x, y).context("landmark point lies outside the window")?;
@@ -321,6 +424,34 @@ mod tests {
     fn resize_counts_as_full_change() {
         let region = changed_region(&solid(100, 80, 0), &solid(90, 80, 0)).unwrap();
         assert_eq!((region.width, region.height, region.fraction), (90, 80, 1.0));
+    }
+
+    #[test]
+    fn ambient_mask_hides_animated_tiles_only() {
+        let still = solid(96, 96, 40);
+        let mut moved = still.to_rgb8();
+        for y in 0..10 {
+            for x in 0..10 {
+                moved.put_pixel(x, y, image::Rgb([255, 255, 255]));
+            }
+        }
+        let moved = DynamicImage::ImageRgb8(moved);
+        let mask = ambient_mask(&[still.clone(), moved.clone()]).unwrap();
+        assert_eq!(changed_region_masked(&still, &moved, Some(&mask)), None);
+        let mut far = still.to_rgb8();
+        for y in 80..96 {
+            for x in 80..96 {
+                far.put_pixel(x, y, image::Rgb([255, 255, 255]));
+            }
+        }
+        let far = DynamicImage::ImageRgb8(far);
+        assert!(changed_region_masked(&still, &far, Some(&mask)).is_some());
+        assert_eq!(ambient_mask(&[still.clone(), still.clone()]), None);
+        // A uniform fade elsewhere is ignored once the page is known to animate.
+        let faded = solid(96, 96, 60);
+        let mut masked_fade = mask.clone();
+        masked_fade.iter_mut().for_each(|t| *t = false);
+        assert_eq!(changed_region_masked(&still, &faded, Some(&masked_fade)), None);
     }
 
     #[test]

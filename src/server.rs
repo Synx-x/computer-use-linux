@@ -84,6 +84,9 @@ pub struct ComputerUseLinux {
     /// refuses input to such a window until a look (screenshot, get_app_state,
     /// or act with no steps) clears it. No client can retry blind.
     act_failures: Arc<Mutex<std::collections::HashMap<u64, String>>>,
+    /// Last frame each `act` call saw, per window. The gap between two calls
+    /// has no input, so what changes across it animates on its own.
+    act_last_frames: Arc<Mutex<std::collections::HashMap<u64, (std::time::Instant, image::DynamicImage)>>>,
 }
 
 fn sanitize_unsigned_integer_formats(value: &mut serde_json::Value) {
@@ -619,7 +622,7 @@ impl ComputerUseLinux {
 
     #[tool(
         name = "act",
-        description = "Act and verify in ONE call. Prefer this over click/press_key/type_text/screenshot. How to use it well: (1) Look once with steps=[] and observe=\"full\" to learn the layout. (2) Then put a whole sub-task in one call: e.g. [click menu, wait 300, click option, wait 800, click column header] with expect=\"change\". Do not send one click per call. (3) Enforced: a batch returns only the changed area. observe=\"full\" works only with steps=[] or right after a failed check, otherwise the server downgrades it to delta. (4) Enforced: every batch defaults to expect=\"change\". Read steps[].ok, changed, expect_passed and window.title (after the steps). When a batch fails, the server refuses further input to that window, including click/press_key/type_text, until you look with steps=[]. Coordinates are window-relative in capture pixels: image pixels / image.scale + image.crop origin. Before every click the tool waits until the window stops moving (scroll animations, menus opening), so clicks after a scroll land on the settled layout. Typing only reaches a focused text field: click the field in the same batch first. click_text {text} clicks visible text read from the screen: after a step that opens a menu or dialog, it searches only what just appeared, so [click dropdown, click_text \"Gemini 3.1 Flash Lite\"] is ONE call. Prefer click_text over coordinates for any labelled control; it fails and lists the matches when the text is missing or ambiguous. save_landmark remembers a point; click {landmark} re-checks its pixels and window size and refuses on mismatch.",
+        description = "Act and verify in ONE call. Prefer this over click/press_key/type_text/screenshot. How to use it well: (1) Look once with steps=[] and observe=\"full\" to learn the layout. (2) Then put a whole sub-task in one call: e.g. [click menu, wait 1500, click option, wait 3000, click column header] with expect=\"change\". wait {ms} is a cap, not a pause: it returns as soon as the window goes quiet, so give page loads a generous cap (3000). Pass exact=true only for a real fixed pause. Do not send one click per call. (3) Enforced: a batch returns only the changed area. observe=\"full\" works only with steps=[] or right after a failed check, otherwise the server downgrades it to delta. (4) Enforced: every batch defaults to expect=\"change\". Read steps[].ok, changed, expect_passed and window.title (after the steps). When the title changes (a new page), the full window comes back, so do not look again after navigating. When a batch fails, the server refuses further input to that window, including click/press_key/type_text, until you look with steps=[]. Coordinates are window-relative in capture pixels: image pixels / image.scale + image.crop origin. Before every click the tool waits until the window stops moving (scroll animations, menus opening), so clicks after a scroll land on the settled layout. Typing only reaches a focused text field: click the field in the same batch first. click_text {text} clicks visible text read from the screen: after a step that opens a menu or dialog, it searches only what just appeared, so [click dropdown, click_text \"Gemini 3.1 Flash Lite\"] is ONE call. Prefer click_text over coordinates for any labelled control; it fails and lists the matches when the text is missing or ambiguous. A label clicked once is remembered, so later clicks on it skip the text search. save_landmark remembers a point; click {landmark} re-checks its pixels and window size and refuses on mismatch.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -665,21 +668,47 @@ impl ComputerUseLinux {
         let (observe, observe_note) = if requested == "full" && !is_look && prior_failure.is_none() {
             ("delta".to_string(), Some("full downgraded to delta: use steps=[] with observe=full to look"))
         } else {
-            (requested, None)
+            (requested.clone(), None)
         };
         let needs_frames = observe != "none" || expect.is_some();
 
         // Focus once up front so the before-frame shows the window on top.
         let _ = focus_window_target(&target).await;
         let before = if needs_frames { self.capture_window_frame(&window).await.ok() } else { None };
+        // Two more frames with no input show which tiles animate on their own.
+        // Diffs then ignore them, so a moving background cannot fake a change.
+        let mask = match (&before, is_look) {
+            (Some(first), false) => {
+                let mut frames = Vec::new();
+                let last = self.act_last_frames.lock().ok().and_then(|map| map.get(&window.window_id).cloned());
+                if let Some((at, frame)) = last {
+                    if at.elapsed() < Duration::from_secs(120) && (frame.width(), frame.height()) == (first.width(), first.height()) {
+                        frames.push(frame);
+                    }
+                }
+                frames.push(first.clone());
+                for _ in 0..2 {
+                    tokio::time::sleep(Duration::from_millis(60)).await;
+                    if let Ok(frame) = self.capture_window_frame(&window).await {
+                        frames.push(frame);
+                    }
+                }
+                crate::act::ambient_mask(&frames)
+            }
+            _ => None,
+        };
 
         let mut step_results = Vec::new();
         let mut landmark_checks = Vec::new();
         let mut all_ok = true;
+        let mut quiet_at = None;
         for step in &params.steps {
             let (label, outcome) = self
-                .run_act_step(step, &window, &app, &mut landmark_checks, before.as_ref())
+                .run_act_step(step, &window, &app, &mut landmark_checks, before.as_ref(), &mut quiet_at, mask.as_deref())
                 .await;
+            if !matches!(step, ActStep::Wait { .. } | ActStep::SaveLandmark { .. }) {
+                quiet_at = None;
+            }
             let ok = outcome.is_ok();
             step_results.push(serde_json::json!({
                 "step": label,
@@ -698,8 +727,13 @@ impl ComputerUseLinux {
             tokio::time::sleep(Duration::from_millis(settle)).await;
             if let Ok(after) = self.capture_window_frame(&window).await {
                 if let Some(before) = before.as_ref() {
-                    region = crate::act::changed_region(before, &after);
+                    region = crate::act::changed_region_masked(before, &after, mask.as_deref())
+                        // On an animated page, stray tiles outside the mask are noise.
+                        .filter(|r| mask.is_none() || r.fraction >= crate::act::QUIET_FRACTION);
                     changed = Some(region.is_some());
+                }
+                if let Ok(mut map) = self.act_last_frames.lock() {
+                    map.insert(window.window_id, (std::time::Instant::now(), after.clone()));
                 }
                 frame_after = Some(after);
             }
@@ -708,6 +742,27 @@ impl ComputerUseLinux {
             (Some("change"), Some(c)) => Some(c),
             (Some("no_change"), Some(c)) => Some(!c),
             _ => None,
+        };
+
+        // The title after the steps shows navigation without needing an image.
+        let title_after = list_windows()
+            .await
+            .ok()
+            .and_then(|windows| windows.into_iter().find(|w| w.window_id == window.window_id))
+            .and_then(|w| w.title)
+            .or_else(|| window.title.clone());
+        // A new page needs a full look anyway, so send it now instead of a
+        // delta and a follow-up look.
+        let navigated = !is_look && title_after != window.title;
+        let observe = if navigated && observe == "delta" && region.is_some() {
+            "full".to_string()
+        } else {
+            observe
+        };
+        let observe_note = if navigated && observe == "full" && requested != "full" {
+            Some("title changed, so the full window is returned")
+        } else {
+            observe_note
         };
 
         let mut content = Vec::new();
@@ -765,13 +820,6 @@ impl ComputerUseLinux {
         if !is_look {
             self.set_failure(window.window_id, failure);
         }
-        // The title after the steps shows navigation without needing an image.
-        let title_after = list_windows()
-            .await
-            .ok()
-            .and_then(|windows| windows.into_iter().find(|w| w.window_id == window.window_id))
-            .and_then(|w| w.title)
-            .or_else(|| window.title.clone());
         let summary = serde_json::json!({
             "ok": all_ok && expect_passed != Some(false),
             "steps": step_results,
@@ -782,6 +830,7 @@ impl ComputerUseLinux {
             "observe": observe,
             "observe_note": observe_note,
             "landmarks": landmark_checks,
+            "ambient_tiles_ignored": mask.as_ref().map(|m| m.iter().filter(|t| **t).count()),
             "image": image_note,
             "window": {"window_id": window.window_id, "app": app, "title": title_after},
         });
@@ -2791,8 +2840,14 @@ enum ActStep {
         #[serde(default)]
         y: Option<i32>,
     },
-    /// Pause, for example while a page loads.
-    Wait { ms: u64 },
+    /// Wait up to `ms` for the window to go quiet, for example while a page
+    /// loads. Returns early once two frames in a row match. `exact` pauses
+    /// for the full time instead.
+    Wait {
+        ms: u64,
+        #[serde(default)]
+        exact: Option<bool>,
+    },
     /// Remember the window-relative point as a named landmark for this app.
     SaveLandmark { name: String, x: i32, y: i32 },
 }
@@ -3145,14 +3200,64 @@ impl ComputerUseLinux {
         Ok(std::sync::Arc::try_unwrap(image).unwrap_or_else(|shared| (*shared).clone()))
     }
 
+    /// Wait up to `max_ms` for the window to go quiet. It needs two frame
+    /// pairs in a row to match, so a page that pauses briefly mid-load does
+    /// not count. Returns the milliseconds spent and whether it went quiet.
+    async fn wait_quiet(&self, window: &WindowInfo, max_ms: u64, mask: Option<&[bool]>) -> (u64, bool) {
+        let start = std::time::Instant::now();
+        let deadline = start + Duration::from_millis(max_ms);
+        tokio::time::sleep(Duration::from_millis(max_ms.min(200))).await;
+        let Ok(mut previous) = self.capture_window_frame(window).await else {
+            return (start.elapsed().as_millis() as u64, false);
+        };
+        let mut quiet_pairs = 0;
+        while std::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let Ok(current) = self.capture_window_frame(window).await else { break };
+            if Self::is_quiet(&previous, &current, mask) {
+                quiet_pairs += 1;
+                if quiet_pairs >= 2 {
+                    return (start.elapsed().as_millis() as u64, true);
+                }
+            } else {
+                quiet_pairs = 0;
+            }
+            previous = current;
+        }
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        tokio::time::sleep(remaining).await;
+        (start.elapsed().as_millis() as u64, false)
+    }
+
     /// Poll the window until two frames 80 ms apart match, for at most 1.2 s.
-    async fn wait_until_still(&self, window: &WindowInfo) {
+    /// Skipped when a quiet wait finished just before.
+    async fn settle_before_click(
+        &self,
+        window: &WindowInfo,
+        quiet_at: &mut Option<std::time::Instant>,
+        mask: Option<&[bool]>,
+    ) {
+        if quiet_at.is_some_and(|at| at.elapsed() < Duration::from_millis(150)) {
+            return;
+        }
+        self.wait_until_still(window, mask).await;
+    }
+
+    /// Two frames count as quiet when only ambient tiles, or a tiny share of
+    /// tiles, changed between them.
+    fn is_quiet(previous: &image::DynamicImage, current: &image::DynamicImage, mask: Option<&[bool]>) -> bool {
+        crate::act::changed_region_masked(previous, current, mask)
+            .is_none_or(|r| r.fraction < crate::act::QUIET_FRACTION)
+    }
+
+    /// Poll the window until two frames 80 ms apart match, for at most 1.2 s.
+    async fn wait_until_still(&self, window: &WindowInfo, mask: Option<&[bool]>) {
         let deadline = std::time::Instant::now() + Duration::from_millis(1200);
         let Ok(mut previous) = self.capture_window_frame(window).await else { return };
         while std::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(80)).await;
             let Ok(current) = self.capture_window_frame(window).await else { return };
-            if crate::act::changed_region(&previous, &current).is_none() {
+            if Self::is_quiet(&previous, &current, mask) {
                 return;
             }
             previous = current;
@@ -3168,6 +3273,8 @@ impl ComputerUseLinux {
         app: &str,
         landmark_checks: &mut Vec<crate::act::LandmarkCheck>,
         before: Option<&image::DynamicImage>,
+        quiet_at: &mut Option<std::time::Instant>,
+        mask: Option<&[bool]>,
     ) -> (String, std::result::Result<String, String>) {
         let wid = window.window_id;
         let action = |output: ActionOutput| {
@@ -3177,7 +3284,7 @@ impl ComputerUseLinux {
             ActStep::Click { x, y, landmark, button, click_count } => {
                 // Wait for the window to stop moving so the click hits the
                 // settled layout, not a scroll or menu mid-animation.
-                self.wait_until_still(window).await;
+                self.settle_before_click(window, quiet_at, mask).await;
                 let (cx, cy, label) = match landmark {
                     Some(name) => {
                         let frame = match self.capture_window_frame(window).await {
@@ -3208,7 +3315,7 @@ impl ComputerUseLinux {
             }
             ActStep::ClickText { text, scope, nth } => {
                 let label = format!("click text {text:?}");
-                self.wait_until_still(window).await;
+                self.settle_before_click(window, quiet_at, mask).await;
                 let frame = match self.capture_window_frame(window).await {
                     Ok(frame) => frame,
                     Err(e) => return (label, Err(format!("capture failed: {e:#}"))),
@@ -3216,11 +3323,30 @@ impl ComputerUseLinux {
                 let (w, h) = (frame.width(), frame.height());
                 let whole = (0, 0, w, h);
                 let region = match (scope.as_deref().unwrap_or("new"), before) {
-                    ("new", Some(before)) => crate::act::changed_region(before, &frame)
+                    ("new", Some(before)) => crate::act::changed_region_masked(before, &frame, mask)
                         .map(|r| crate::act::padded(r, w, h))
                         .unwrap_or(whole),
                     _ => whole,
                 };
+                // A label clicked before is saved as a landmark. When its pixels
+                // still match inside the search area, click it without OCR.
+                let cache_name = crate::act::text_landmark_name(text);
+                if nth.is_none() {
+                    if let (Some(mark), _) = crate::act::check_landmark(app, &cache_name, &frame) {
+                        let (rx, ry, rw, rh) = region;
+                        if mark.x >= rx && mark.x < rx + rw && mark.y >= ry && mark.y < ry + rh {
+                            let params = serde_json::from_value::<ClickParams>(serde_json::json!({
+                                "window_id": wid, "relative": true, "x": mark.x, "y": mark.y,
+                            }));
+                            if let Ok(params) = params {
+                                let result = action(self.click(Parameters(params)).await.0);
+                                *quiet_at = None;
+                                let note = format!("clicked cached {text:?} at {},{} (landmark matched, no OCR)", mark.x, mark.y);
+                                return (label, result.map(|_| note));
+                            }
+                        }
+                    }
+                }
                 let matches = match crate::act::find_text(&frame, region, text) {
                     Ok(matches) => matches,
                     Err(e) => return (label, Err(format!("text search failed: {e:#}"))),
@@ -3239,8 +3365,12 @@ impl ComputerUseLinux {
                 let params = serde_json::from_value::<ClickParams>(serde_json::json!({
                     "window_id": wid, "relative": true, "x": chosen.x, "y": chosen.y,
                 }));
+                let unique = nth.is_none();
                 match params {
                     Ok(params) => {
+                        if unique {
+                            let _ = crate::act::save_landmark(app, &cache_name, &frame, chosen.x, chosen.y);
+                        }
                         let result = action(self.click(Parameters(params)).await.0);
                         let note = format!("clicked {:?} at {},{} (score {:.2})", chosen.text, chosen.x, chosen.y, chosen.score);
                         (label, result.map(|_| note))
@@ -3281,10 +3411,18 @@ impl ComputerUseLinux {
                     Err(e) => (format!("scroll {direction}"), Err(format!("bad scroll step: {e}"))),
                 }
             }
-            ActStep::Wait { ms } => {
+            ActStep::Wait { ms, exact } => {
                 let ms = (*ms).min(30_000);
-                tokio::time::sleep(Duration::from_millis(ms)).await;
-                (format!("wait {ms}ms"), Ok("waited".to_string()))
+                if exact.unwrap_or(false) {
+                    tokio::time::sleep(Duration::from_millis(ms)).await;
+                    return (format!("wait {ms}ms"), Ok("waited the full time".to_string()));
+                }
+                let (spent, quiet) = self.wait_quiet(window, ms, mask).await;
+                if quiet {
+                    *quiet_at = Some(std::time::Instant::now());
+                }
+                let note = if quiet { format!("quiet after {spent}ms") } else { format!("still changing after {spent}ms") };
+                (format!("wait up to {ms}ms"), Ok(note))
             }
             ActStep::SaveLandmark { name, x, y } => {
                 let label = format!("save landmark {name}");
