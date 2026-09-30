@@ -485,7 +485,29 @@ pub struct TextMatch {
 
 /// Read words with Tesseract inside `region` of `frame`, then return every
 /// run of words that matches `target`, best first.
-pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &str) -> Result<Vec<TextMatch>> {
+/// One recognised word: text, then left, top, width and height in the 2x crop.
+type OcrWord = (String, u32, u32, u32, u32);
+
+/// Every line of text in the region, with its centre in window pixels. A look
+/// with marks lists these so the agent can click one by number.
+pub fn ocr_lines(frame: &DynamicImage, region: (u32, u32, u32, u32)) -> Result<Vec<TextMatch>> {
+    let (rx, ry, _, _) = region;
+    Ok(ocr_word_lines(frame, region)?
+        .into_iter()
+        .filter(|words| !words.is_empty())
+        .map(|words| {
+            let text = words.iter().map(|w| w.0.as_str()).collect::<Vec<_>>().join(" ");
+            let left = words.iter().map(|w| w.1).min().unwrap_or(0);
+            let top = words.iter().map(|w| w.2).min().unwrap_or(0);
+            let right = words.iter().map(|w| w.1 + w.3).max().unwrap_or(0);
+            let bottom = words.iter().map(|w| w.2 + w.4).max().unwrap_or(0);
+            TextMatch { text, x: rx + (left + right) / 4, y: ry + (top + bottom) / 4, score: 1.0 }
+        })
+        .collect())
+}
+
+/// Run Tesseract on the region and group its words into lines.
+fn ocr_word_lines(frame: &DynamicImage, region: (u32, u32, u32, u32)) -> Result<Vec<Vec<OcrWord>>> {
     let (rx, ry, rw, rh) = region;
     // Small UI text reads far better at twice the size.
     let crop = frame
@@ -506,7 +528,7 @@ pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &st
     }
 
     // Group recognised words into lines, keyed by block, paragraph and line.
-    let mut lines: Vec<((String, String, String), Vec<(String, u32, u32, u32, u32)>)> = Vec::new();
+    let mut lines: Vec<((String, String, String), Vec<OcrWord>)> = Vec::new();
     for row in String::from_utf8_lossy(&output.stdout).lines().skip(1) {
         let cols: Vec<&str> = row.split('\t').collect();
         if cols.len() < 12 || cols[0] != "5" || cols[11].trim().is_empty() {
@@ -525,10 +547,16 @@ pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &st
         }
     }
 
+    Ok(lines.into_iter().map(|(_, words)| words).collect())
+}
+
+pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &str) -> Result<Vec<TextMatch>> {
+    let (rx, ry, _, _) = region;
+    let lines = ocr_word_lines(frame, region)?;
     let want = normalize(target);
     let want_len = want.split(' ').count().max(1);
     let mut found: Vec<TextMatch> = Vec::new();
-    for (_, words) in &lines {
+    for words in &lines {
         for start in 0..words.len() {
             for len in 1..=(want_len + 1).min(words.len() - start) {
                 let run = &words[start..start + len];
@@ -565,7 +593,7 @@ pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &st
     Ok(kept)
 }
 
-fn normalize(text: &str) -> String {
+pub(crate) fn normalize(text: &str) -> String {
     text.chars()
         .map(|c| if c.is_alphanumeric() || c == '.' { c.to_ascii_lowercase() } else { ' ' })
         .collect::<String>()
@@ -575,7 +603,7 @@ fn normalize(text: &str) -> String {
 }
 
 /// Levenshtein similarity from 0 to 1.
-fn similarity(a: &str, b: &str) -> f64 {
+pub(crate) fn similarity(a: &str, b: &str) -> f64 {
     let (a, b): (Vec<char>, Vec<char>) = (a.chars().collect(), b.chars().collect());
     if a.is_empty() && b.is_empty() {
         return 1.0;

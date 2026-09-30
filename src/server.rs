@@ -87,6 +87,25 @@ pub struct ComputerUseLinux {
     /// Last frame each `act` call saw, per window. The gap between two calls
     /// has no input, so what changes across it animates on its own.
     act_last_frames: Arc<Mutex<std::collections::HashMap<u64, (std::time::Instant, image::DynamicImage)>>>,
+    /// Numbered targets from the last look with marks, per window.
+    act_marks: Arc<Mutex<std::collections::HashMap<u64, Vec<ActMark>>>>,
+}
+
+/// A numbered target a look returned. An AT-SPI mark is pressed through its
+/// own action. An OCR mark is re-read at its point before the click.
+#[derive(Debug, Clone, Serialize)]
+struct ActMark {
+    mark: u32,
+    text: String,
+    source: &'static str,
+    #[serde(skip)]
+    object_ref: Option<String>,
+    #[serde(skip)]
+    action: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    x: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    y: Option<u32>,
 }
 
 fn sanitize_unsigned_integer_formats(value: &mut serde_json::Value) {
@@ -622,7 +641,7 @@ impl ComputerUseLinux {
 
     #[tool(
         name = "act",
-        description = "Act and verify in ONE call. Prefer this over click/press_key/type_text/screenshot. How to use it well: (1) Look once with steps=[] and observe=\"full\" to learn the layout. (2) Then put a whole sub-task in one call: e.g. [click menu, wait 1500, click option, wait 3000, click column header] with expect=\"change\". wait {ms} is a cap, not a pause: it returns as soon as the window goes quiet, so give page loads a generous cap (3000). Pass exact=true only for a real fixed pause. Do not send one click per call. (3) Enforced: a batch returns only the changed area. observe=\"full\" works only with steps=[] or right after a failed check, otherwise the server downgrades it to delta. (4) Enforced: every batch defaults to expect=\"change\". Read steps[].ok, changed, expect_passed and window.title (after the steps). When the title changes (a new page), the full window comes back, so do not look again after navigating. When a batch fails, the server refuses further input to that window, including click/press_key/type_text, until you look with steps=[]. Coordinates are window-relative in capture pixels: image pixels / image.scale + image.crop origin. Before every click the tool waits until the window stops moving (scroll animations, menus opening), so clicks after a scroll land on the settled layout. Typing only reaches a focused text field: click the field in the same batch first. click_text {text} clicks visible text read from the screen: after a step that opens a menu or dialog, it searches only what just appeared, so [click dropdown, click_text \"Gemini 3.1 Flash Lite\"] is ONE call. Prefer click_text over coordinates for any labelled control; it fails and lists the matches when the text is missing or ambiguous. A label clicked once is remembered, so later clicks on it skip the text search. save_landmark remembers a point; click {landmark} re-checks its pixels and window size and refuses on mismatch.",
+        description = "Act and verify in ONE call. Prefer this over click/press_key/type_text/screenshot. How to use it well: (1) Look once with steps=[] and observe=\"full\" to learn the layout. (2) Then put a whole sub-task in one call: e.g. [click menu, wait 1500, click option, wait 3000, click column header] with expect=\"change\". wait {ms} is a cap, not a pause: it returns as soon as the window goes quiet, so give page loads a generous cap (3000). Pass exact=true only for a real fixed pause. Do not send one click per call. (3) Enforced: a batch returns only the changed area. observe=\"full\" works only with steps=[] or right after a failed check, otherwise the server downgrades it to delta. (4) Enforced: every batch defaults to expect=\"change\". Read steps[].ok, changed, expect_passed and window.title (after the steps). When the title changes (a new page), the full window comes back, so do not look again after navigating. When a batch fails, the server refuses further input to that window, including click/press_key/type_text, until you look with steps=[]. Coordinates are window-relative in capture pixels: image pixels / image.scale + image.crop origin. Before every click the tool waits until the window stops moving (scroll animations, menus opening), so clicks after a scroll land on the settled layout. Typing only reaches a focused text field: click the field in the same batch first. click_text {text} clicks visible text read from the screen: after a step that opens a menu or dialog, it searches only what just appeared, so [click dropdown, click_text \"Gemini 3.1 Flash Lite\"] is ONE call. Prefer click_text over coordinates for any labelled control; it fails and lists the matches when the text is missing or ambiguous. A label clicked once is remembered, so later clicks on it skip the text search. click_text presses a button the accessibility tree names before it reads the screen. Look with marks=true to get numbered targets, then click {mark: N}: a mark is re-checked before the click. Look with zoom {x,y,width,height} to read small text at full resolution. save_landmark remembers a point; click {landmark} re-checks its pixels and window size and refuses on mismatch.",
         annotations(
             read_only_hint = false,
             destructive_hint = false,
@@ -670,7 +689,8 @@ impl ComputerUseLinux {
         } else {
             (requested.clone(), None)
         };
-        let needs_frames = observe != "none" || expect.is_some();
+        let wants_marks = is_look && params.marks.unwrap_or(false);
+        let needs_frames = observe != "none" || expect.is_some() || wants_marks;
 
         // Focus once up front so the before-frame shows the window on top.
         let _ = focus_window_target(&target).await;
@@ -769,7 +789,13 @@ impl ComputerUseLinux {
         let mut image_note = serde_json::Value::Null;
         if let Some(after) = frame_after.as_ref() {
             let (w, h) = (after.width(), after.height());
+            let zoom = params.zoom.clone().filter(|_| is_look).map(|z| {
+                let x = z.x.min(w.saturating_sub(1));
+                let y = z.y.min(h.saturating_sub(1));
+                (x, y, z.width.clamp(1, w - x), z.height.clamp(1, h - y))
+            });
             let crop = match (observe.as_str(), region) {
+                _ if zoom.is_some() => zoom,
                 ("full", _) => Some((0, 0, w, h)),
                 ("delta", Some(r)) => Some(crate::act::padded(r, w, h)),
                 _ => None,
@@ -820,7 +846,34 @@ impl ComputerUseLinux {
         if !is_look {
             self.set_failure(window.window_id, failure);
         }
+        // Marks: numbered targets from the accessibility tree, then lines of
+        // text read from the screen. Only a look computes them, since OCR of a
+        // whole window costs about a second.
+        let mut marks_view = serde_json::Value::Null;
+        if is_look && params.marks.unwrap_or(false) {
+            let mut marks = Vec::new();
+            for (name, object_ref, action) in self.pressable_nodes(&window).await {
+                if marks.iter().any(|m: &ActMark| m.text == name && m.source == "accessibility") {
+                    continue;
+                }
+                marks.push(ActMark { mark: marks.len() as u32 + 1, text: name, source: "accessibility",
+                                     object_ref: Some(object_ref), action: Some(action), x: None, y: None });
+            }
+            if let Some(after) = frame_after.as_ref() {
+                if let Ok(lines) = crate::act::ocr_lines(after, (0, 0, after.width(), after.height())) {
+                    for line in lines {
+                        marks.push(ActMark { mark: marks.len() as u32 + 1, text: line.text, source: "text",
+                                             object_ref: None, action: None, x: Some(line.x), y: Some(line.y) });
+                    }
+                }
+            }
+            marks_view = serde_json::json!(marks);
+            if let Ok(mut map) = self.act_marks.lock() {
+                map.insert(window.window_id, marks);
+            }
+        }
         let summary = serde_json::json!({
+            "marks": marks_view,
             "ok": all_ok && expect_passed != Some(false),
             "steps": step_results,
             "changed": changed,
@@ -2801,8 +2854,11 @@ struct GetAppStateOutput {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 enum ActStep {
-    /// Click window-relative coordinates, or a saved landmark by name.
+    /// Click window-relative coordinates, a saved landmark by name, or a
+    /// numbered mark from the last look with marks.
     Click {
+        #[serde(default)]
+        mark: Option<u32>,
         #[serde(default)]
         x: Option<i32>,
         #[serde(default)]
@@ -2868,6 +2924,22 @@ struct ActParams {
     /// Wait before the after-capture, in ms (default 150, max 5000).
     #[serde(default)]
     settle_ms: Option<u64>,
+    /// With steps=[]: also list numbered targets (buttons from the
+    /// accessibility tree, lines of text read from the screen). Click one with
+    /// click {mark: N}.
+    #[serde(default)]
+    marks: Option<bool>,
+    /// With steps=[]: return this window-relative region at full resolution.
+    #[serde(default)]
+    zoom: Option<ZoomRect>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct ZoomRect {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
@@ -3229,6 +3301,49 @@ impl ComputerUseLinux {
         (start.elapsed().as_millis() as u64, false)
     }
 
+    /// Accessibility controls in the window's app that can be pressed: their
+    /// name, object ref and action. Dotted names such as "default.activate"
+    /// are app-level actions, not a press.
+    async fn pressable_nodes(&self, window: &WindowInfo) -> Vec<(String, String, String)> {
+        let Ok(nodes) = crate::atspi_tree::snapshot_tree(None, window.pid, 600, 40).await else {
+            return Vec::new();
+        };
+        nodes
+            .into_iter()
+            .filter(|n| n.states.iter().any(|s| s == "showing") && n.states.iter().any(|s| s == "sensitive"))
+            .filter_map(|n| {
+                let name = n.name.clone()?.trim().to_string();
+                let action = n.actions.iter().find(|a| {
+                    let lower = a.name.to_ascii_lowercase();
+                    !lower.contains('.') && ["click", "press", "activate", "toggle"].iter().any(|k| lower.contains(k))
+                })?;
+                (!name.is_empty()).then(|| (name, n.object_ref.clone(), action.name.clone()))
+            })
+            .collect()
+    }
+
+    /// Press the one pressable control whose name matches. None means no
+    /// unique match, so the caller falls back to OCR.
+    async fn press_by_name(&self, window: &WindowInfo, text: &str) -> Option<std::result::Result<String, String>> {
+        let want = crate::act::normalize(text);
+        let nodes = self.pressable_nodes(window).await;
+        let exact: Vec<_> = nodes.iter().filter(|(name, _, _)| crate::act::normalize(name) == want).collect();
+        let pool = if exact.is_empty() {
+            nodes
+                .iter()
+                .filter(|(name, _, _)| crate::act::similarity(&crate::act::normalize(name), &want) >= 0.85)
+                .collect()
+        } else {
+            exact
+        };
+        let [(name, object_ref, action)] = pool.as_slice() else { return None };
+        Some(match crate::atspi_tree::perform_named_action(object_ref, action).await {
+            Ok(done) if done.ok => Ok(format!("pressed {name:?} through its accessibility action, no OCR")),
+            Ok(_) => Err(format!("{name:?} refused its accessibility action")),
+            Err(e) => Err(format!("accessibility press failed: {e:#}")),
+        })
+    }
+
     /// Poll the window until two frames 80 ms apart match, for at most 1.2 s.
     /// Skipped when a quiet wait finished just before.
     async fn settle_before_click(
@@ -3281,7 +3396,58 @@ impl ComputerUseLinux {
             if output.ok { Ok(output.message) } else { Err(output.message) }
         };
         match step {
-            ActStep::Click { x, y, landmark, button, click_count } => {
+            ActStep::Click { mark: Some(number), .. } => {
+                let label = format!("click mark {number}");
+                self.settle_before_click(window, quiet_at, mask).await;
+                let found = self
+                    .act_marks
+                    .lock()
+                    .ok()
+                    .and_then(|map| map.get(&wid).and_then(|marks| marks.iter().find(|m| m.mark == *number).cloned()));
+                let Some(mark) = found else {
+                    return (label, Err(format!("no mark {number}: look with marks=true first")));
+                };
+                if let (Some(object_ref), Some(name)) = (&mark.object_ref, &mark.action) {
+                    return match crate::atspi_tree::perform_named_action(object_ref, name).await {
+                        Ok(done) if done.ok => (label, Ok(format!("pressed {:?} through its accessibility action", mark.text))),
+                        Ok(_) => (label, Err(format!("{:?} refused its accessibility action", mark.text))),
+                        Err(e) => (label, Err(format!("mark {number} {:?} is gone, look again: {e:#}", mark.text))),
+                    };
+                }
+                // An OCR mark is checked where it was seen, so a moved or
+                // replaced label fails instead of clicking the wrong thing.
+                let (Some(mx), Some(my)) = (mark.x, mark.y) else {
+                    return (label, Err(format!("mark {number} has no position")));
+                };
+                let frame = match self.capture_window_frame(window).await {
+                    Ok(frame) => frame,
+                    Err(e) => return (label, Err(format!("capture failed: {e:#}"))),
+                };
+                let (w, h) = (frame.width(), frame.height());
+                let region = crate::act::padded(
+                    crate::act::ChangedRegion { x: mx.saturating_sub(80), y: my.saturating_sub(20), width: 160, height: 40, fraction: 0.0 },
+                    w,
+                    h,
+                );
+                let target = match crate::act::find_text(&frame, region, &mark.text) {
+                    Ok(found) => found.into_iter().next(),
+                    Err(e) => return (label, Err(format!("text check failed: {e:#}"))),
+                };
+                let Some(target) = target else {
+                    return (label, Err(format!("mark {number} {:?} is no longer at {mx},{my}, look again", mark.text)));
+                };
+                let params = serde_json::from_value::<ClickParams>(serde_json::json!({
+                    "window_id": wid, "relative": true, "x": target.x, "y": target.y,
+                }));
+                match params {
+                    Ok(params) => {
+                        let result = action(self.click(Parameters(params)).await.0);
+                        (label, result.map(|_| format!("clicked {:?} at {},{}", mark.text, target.x, target.y)))
+                    }
+                    Err(e) => (label, Err(format!("bad mark click: {e}"))),
+                }
+            }
+            ActStep::Click { x, y, landmark, button, click_count, .. } => {
                 // Wait for the window to stop moving so the click hits the
                 // settled layout, not a scroll or menu mid-animation.
                 self.settle_before_click(window, quiet_at, mask).await;
@@ -3316,6 +3482,14 @@ impl ComputerUseLinux {
             ActStep::ClickText { text, scope, nth } => {
                 let label = format!("click text {text:?}");
                 self.settle_before_click(window, quiet_at, mask).await;
+                // A control the accessibility tree names and can press needs
+                // no OCR and no coordinates, which Wayland does not report.
+                if nth.is_none() {
+                    if let Some(result) = self.press_by_name(window, text).await {
+                        *quiet_at = None;
+                        return (label, result);
+                    }
+                }
                 let frame = match self.capture_window_frame(window).await {
                     Ok(frame) => frame,
                     Err(e) => return (label, Err(format!("capture failed: {e:#}"))),
