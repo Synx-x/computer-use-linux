@@ -259,6 +259,7 @@ pub async fn list_accessible_apps(limit: usize) -> Result<Vec<AccessibleAppSumma
     let mut remaining_child_reads = limit;
     let roots = registry_children(&conn, limit, &mut remaining_child_reads).await?;
     let dbus = DBusProxy::new(conn.connection()).await.ok();
+    let roots = nested_roots(dbus.as_ref(), roots).await;
     let mut apps = Vec::new();
 
     for object_ref in roots.into_iter().take(limit) {
@@ -505,6 +506,7 @@ async fn perform_action_inner(
 ) -> Result<ActionInvocation> {
     let conn = connect().await?;
     let object_ref = object_ref_from_id(object_ref_id)?;
+    ensure_nested_object(&conn, &object_ref).await?;
     let proxy = open_accessible(&conn, &object_ref)
         .await
         .with_context(|| format!("failed to open AT-SPI object {object_ref_id}"))?;
@@ -538,6 +540,7 @@ async fn perform_action_inner(
 pub async fn set_element_value(object_ref_id: &str, value: &str) -> Result<ValueSetInvocation> {
     let conn = connect().await?;
     let object_ref = object_ref_from_id(object_ref_id)?;
+    ensure_nested_object(&conn, &object_ref).await?;
     let proxy = open_accessible(&conn, &object_ref)
         .await
         .with_context(|| format!("failed to open AT-SPI object {object_ref_id}"))?;
@@ -648,7 +651,7 @@ async fn select_roots(
 ) -> SelectedRoots {
     let needle = app_name_needle(app_name_or_bundle_identifier);
     let dbus = DBusProxy::new(conn.connection()).await.ok();
-    let mut remaining = roots;
+    let mut remaining = nested_roots(dbus.as_ref(), roots).await;
 
     if let Some(target_pid) = target_pid {
         let mut pid_and_filter_matches = Vec::new();
@@ -808,6 +811,47 @@ async fn role_name(proxy: &AccessibleProxy<'_>) -> String {
 
 async fn bounds(proxy: &AccessibleProxy<'_>) -> Option<Bounds> {
     bounds_from_proxies(proxy.proxies().await.ok().as_ref(), proxy).await
+}
+
+/// In nested mode, keep only the apps that run on the nested display. The
+/// host's apps share the AT-SPI bus and must stay out of reach.
+async fn nested_roots(
+    dbus: Option<&DBusProxy<'_>>,
+    roots: Vec<ObjectRefOwned>,
+) -> Vec<ObjectRefOwned> {
+    if !crate::nested_input::enabled() {
+        return roots;
+    }
+    let mut kept = Vec::new();
+    for object_ref in roots {
+        if object_ref_pid(dbus, &object_ref)
+            .await
+            .is_some_and(crate::nested_input::owns_pid)
+        {
+            kept.push(object_ref);
+        }
+    }
+    kept
+}
+
+/// Refuse an AT-SPI action or value change on an app outside the nested
+/// display. This is the gate. The snapshot filter only keeps host apps out
+/// of view.
+async fn ensure_nested_object(
+    conn: &AccessibilityConnection,
+    object_ref: &ObjectRefOwned,
+) -> Result<()> {
+    if !crate::nested_input::enabled() {
+        return Ok(());
+    }
+    let dbus = DBusProxy::new(conn.connection()).await.ok();
+    match object_ref_pid(dbus.as_ref(), object_ref).await {
+        Some(pid) if crate::nested_input::owns_pid(pid) => Ok(()),
+        Some(pid) => anyhow::bail!(
+            "CUL_NESTED=1 refuses AT-SPI input to pid {pid}, which is not on this nested display"
+        ),
+        None => anyhow::bail!("CUL_NESTED=1 could not resolve the AT-SPI object's process"),
+    }
 }
 
 async fn object_ref_pid(dbus: Option<&DBusProxy<'_>>, object_ref: &ObjectRefOwned) -> Option<u32> {

@@ -190,6 +190,13 @@ impl ScreenshotBackend {
 pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
     hydrate_session_bus_env();
 
+    // Nested mode captures the nested display through grim and nothing else.
+    // Every other backend, a forced one included, can capture the host.
+    if crate::nested_input::enabled() {
+        return capture_with_grim()
+            .await
+            .context("CUL_NESTED=1 captures only through grim on WAYLAND_DISPLAY");
+    }
     // Explicit override: use exactly the requested backend, no fallback. Lets
     // background/systemd contexts pin `gnome-screenshot` when the DBus paths are
     // blocked, and aids debugging.
