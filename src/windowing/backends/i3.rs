@@ -80,7 +80,12 @@ pub(crate) fn parse_i3_tree(json: &str) -> Result<Vec<WindowInfo>> {
 }
 
 pub async fn activate_window(window_id: u64) -> Result<()> {
-    let selector = format!(r#"[id="0x{window_id:x}"] focus"#);
+    // Sway lists Wayland-native windows, which have no X11 id, by container id.
+    let selector = if sway_socket().is_some() {
+        format!("[con_id={window_id}] focus")
+    } else {
+        format!(r#"[id="0x{window_id:x}"] focus"#)
+    };
     let mut command = i3_msg_command_async();
     command.arg(&selector);
     let output = command_runner::output(command, &format!("run i3-msg {selector}")).await?;
@@ -162,7 +167,18 @@ pub(crate) fn parse_xprop_pid(output: &str) -> Option<u32> {
     output.split('=').nth(1)?.trim().parse::<u32>().ok()
 }
 
+/// The sway IPC socket, when this session is sway. swaymsg speaks the i3
+/// protocol and sees Wayland-native windows, which i3-msg cannot.
+fn sway_socket() -> Option<PathBuf> {
+    env_var("SWAYSOCK").map(PathBuf::from)
+}
+
 fn i3_msg_command() -> Command {
+    if let Some(socket) = sway_socket() {
+        let mut command = Command::new("swaymsg");
+        command.arg("-s").arg(socket);
+        return command;
+    }
     let mut command = Command::new("i3-msg");
     if let Some(socket_path) = i3_socket_path() {
         command.arg("-s").arg(socket_path);
@@ -171,6 +187,11 @@ fn i3_msg_command() -> Command {
 }
 
 fn i3_msg_command_async() -> TokioCommand {
+    if let Some(socket) = sway_socket() {
+        let mut command = TokioCommand::new("swaymsg");
+        command.arg("-s").arg(socket);
+        return command;
+    }
     let mut command = TokioCommand::new("i3-msg");
     if let Some(socket_path) = i3_socket_path() {
         command.arg("-s").arg(socket_path);
@@ -233,6 +254,11 @@ struct I3CommandReply {
 struct I3Node {
     #[serde(rename = "type")]
     node_type: Option<String>,
+    /// Container id. Sway gives every view one, Wayland or X11.
+    id: Option<u64>,
+    /// Sway only: the Wayland app id and client pid of a view.
+    app_id: Option<String>,
+    pid: Option<u32>,
     name: Option<String>,
     window: Option<u64>,
     window_type: Option<String>,
@@ -269,7 +295,10 @@ impl I3Node {
         if in_dockarea {
             return None;
         }
-        let window_id = self.window?;
+        // A sway view carries a pid. Key it by container id so Wayland and
+        // X11 views share one id space that `[con_id=N]` can focus.
+        let sway_view = self.pid.is_some() && self.id.is_some();
+        let window_id = if sway_view { self.id? } else { self.window? };
         if self.window_type.as_deref() == Some("dock") {
             return None;
         }
@@ -285,11 +314,13 @@ impl I3Node {
                 .and_then(|properties| properties.class.as_deref())
                 .or_else(|| properties.and_then(|properties| properties.instance.as_deref())),
         );
-        let app_id = clean_string(
-            properties
-                .and_then(|properties| properties.instance.as_deref())
-                .or(wm_class.as_deref()),
-        );
+        let app_id = clean_string(self.app_id.as_deref()).or_else(|| {
+            clean_string(
+                properties
+                    .and_then(|properties| properties.instance.as_deref())
+                    .or(wm_class.as_deref()),
+            )
+        });
         let rect = self.rect.as_ref().or(self.geometry.as_ref());
         let bounds = rect.map(|rect| WindowBounds {
             x: Some(rect.x),
@@ -303,12 +334,19 @@ impl I3Node {
             title,
             app_id,
             wm_class,
-            pid: None,
+            pid: self.pid,
             bounds,
             workspace,
             focused: self.focused,
             hidden: self.scratchpad_state.as_deref() == Some("fresh"),
-            client_type: Some("x11".to_string()),
+            client_type: Some(
+                if self.window.is_some() {
+                    "x11"
+                } else {
+                    "wayland"
+                }
+                .to_string(),
+            ),
             backend: I3_BACKEND.to_string(),
             terminal: None,
         })

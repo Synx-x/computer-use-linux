@@ -1104,6 +1104,27 @@ impl ComputerUseLinux {
         let ClickTarget::Coordinates(x, y) = target else {
             unreachable!("click target must resolve to coordinates or an AT-SPI action");
         };
+        if crate::nested_input::enabled() {
+            let Some(button) = crate::nested_input::button_code(params.button.as_deref()) else {
+                return Json(nested_action_result(
+                    "click",
+                    Err("Nested input supports left, right and middle buttons only.".to_string()),
+                    received,
+                ));
+            };
+            let count = params.click_count.unwrap_or(1).clamp(1, 10);
+            let result =
+                run_nested_input(move || crate::nested_input::click(x, y, button, count)).await;
+            let off_screen_note = self.off_screen_note_for_point(x, y).await;
+            return Json(with_notes(
+                nested_action_result(
+                    "click",
+                    result.map(|(lx, ly)| format!("Clicked at ({lx}, {ly}) on the nested display.")),
+                    received,
+                ),
+                off_screen_note,
+            ));
+        }
         let button = mouse_button_code(params.button.as_deref());
         let click_count = params.click_count.unwrap_or(1).clamp(1, 10).to_string();
         // Preferred backend: the uinput absolute pointer. Unlike ydotool's
@@ -1512,6 +1533,26 @@ impl ComputerUseLinux {
             Some((x, y)) => self.off_screen_note_for_point(x, y).await,
             None => None,
         };
+        if crate::nested_input::enabled() {
+            let direction = match direction {
+                ScrollDirection::Up => crate::nested_input::ScrollDirection::Up,
+                ScrollDirection::Down => crate::nested_input::ScrollDirection::Down,
+                ScrollDirection::Left => crate::nested_input::ScrollDirection::Left,
+                ScrollDirection::Right => crate::nested_input::ScrollDirection::Right,
+            };
+            let result = run_nested_input(move || {
+                crate::nested_input::scroll(target_point, direction, units)
+            })
+            .await;
+            return Json(with_notes(
+                nested_action_result(
+                    "scroll",
+                    result.map(|()| format!("Scrolled {units} notches on the nested display.")),
+                    received,
+                ),
+                off_screen_note,
+            ));
+        }
         if let Some(session) = self.cached_portal_pointer_session() {
             let mapped_target = match (portal_target_point, target_point) {
                 (Some(point), _) => Some(Some(point)),
@@ -1633,6 +1674,16 @@ impl ComputerUseLinux {
     async fn drag(&self, Parameters(params): Parameters<DragParams>) -> Json<ActionOutput> {
         let received = Some(serde_json::json!(params));
         let input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
+        if crate::nested_input::enabled() {
+            let start = (params.start_x, params.start_y);
+            let end = (params.end_x, params.end_y);
+            let result = run_nested_input(move || crate::nested_input::drag(start, end)).await;
+            return Json(nested_action_result(
+                "drag",
+                result.map(|()| "Dragged on the nested display.".to_string()),
+                received,
+            ));
+        }
         // Preferred backend: the uinput absolute pointer (accurate landing).
         if self.ensure_abs_pointer().await {
             let abs_pointer = Arc::clone(&self.abs_pointer);
@@ -1777,6 +1828,20 @@ impl ComputerUseLinux {
                 received,
             });
         };
+        if crate::nested_input::enabled() {
+            let result = run_nested_input(move || {
+                crate::nested_input::key_chord(&chord_modifiers, chord_key)
+            })
+            .await;
+            return Json(with_focus_context(
+                nested_action_result(
+                    "press_key",
+                    result.map(|()| "Key sent to the nested display.".to_string()),
+                    received,
+                ),
+                focus,
+            ));
+        }
         if self.should_prefer_portal_keyboard_for_chords().await {
             match self.ensure_portal_keyboard_session().await {
                 Ok(Some(session)) => {
@@ -1917,6 +1982,18 @@ impl ComputerUseLinux {
                 });
             }
         };
+        if crate::nested_input::enabled() {
+            let text = params.text.clone();
+            let result = run_nested_input(move || crate::nested_input::type_text(&text)).await;
+            return Json(with_focus_context(
+                nested_action_result(
+                    "type_text",
+                    result.map(|()| "Text typed on the nested display.".to_string()),
+                    received,
+                ),
+                focus,
+            ));
+        }
         if self.should_prefer_kde_clipboard_text_backend() {
             match self.ensure_portal_keyboard_session().await {
                 Ok(Some(session)) => {
@@ -5405,6 +5482,35 @@ fn first_line(text: &str) -> &str {
 
 /// Append supplemental notes (off-screen or focused-element feedback) to an
 /// action result message without changing ok/implemented semantics.
+/// Run one nested-input call on a blocking thread. The Wayland calls and
+/// the press/release gaps block, so they stay off the async runtime.
+async fn run_nested_input<T: Send + 'static>(
+    call: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> std::result::Result<T, String> {
+    match tokio::task::spawn_blocking(call).await {
+        Ok(result) => result.map_err(|error| format!("{error:#}")),
+        Err(error) => Err(format!("nested input task failed: {error}")),
+    }
+}
+
+fn nested_action_result(
+    action: &str,
+    result: std::result::Result<String, String>,
+    received: Option<serde_json::Value>,
+) -> ActionOutput {
+    let (ok, message) = match result {
+        Ok(message) => (true, message),
+        Err(error) => (false, format!("Nested input failed: {error}")),
+    };
+    ActionOutput {
+        ok,
+        implemented: true,
+        action: action.to_string(),
+        message,
+        received,
+    }
+}
+
 fn with_notes(mut output: ActionOutput, notes: impl IntoIterator<Item = String>) -> ActionOutput {
     for note in notes {
         output.message = format!("{} {note}", output.message);

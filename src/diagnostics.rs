@@ -405,8 +405,14 @@ pub fn hydrate_session_bus_env() {
     LAST_HYDRATE_MS.store(now_ms, Ordering::Relaxed);
 
     hydrate_common_command_path();
-    hydrate_desktop_env_from_process_tree();
-    hydrate_desktop_env_from_systemd_user();
+    // A nested session keeps its own display. Grafting the host's keys onto
+    // it would point window and input backends back at the host desktop.
+    if crate::nested_input::enabled() {
+        crate::nested_input::isolate_environment();
+    } else {
+        hydrate_desktop_env_from_process_tree();
+        hydrate_desktop_env_from_systemd_user();
+    }
 
     if env_var("XDG_RUNTIME_DIR").is_none() {
         if let Some(runtime) = xdg_runtime_dir() {
