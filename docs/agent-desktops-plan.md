@@ -76,3 +76,17 @@ The sky from `~/dev/space-bg` replaces the CSS sky when that project's `PORT.md`
 ## Verification
 
 Every phase ends with a live check on this machine, and each check records the host cursor before and after. Screenshots of the PWA go in `docs/shots/`.
+
+## Lanes
+
+Two lanes run this plan in parallel. Each lane commits only to its own branch, never merges, and asks no questions. Each lane records its decisions and results in `docs/lane-<name>.md` before it stops.
+
+| Lane | Owns | Phases | Port |
+| --- | --- | --- | --- |
+| `core` | `src/`, `Cargo.toml`, `tests/` | 1, 2 and the Rust half of 5 | 7420 |
+| `pwa` | `web/` only | 3 | 7430 for its own static server |
+
+- The `pwa` lane builds against the API table above. It adds a mock mode (`?mock`) that serves sample desktops from `web/mock.js`, so it does not wait for `core`. The visual source is `docs/agent-desktops-design.dc.html`, the canvas artboard. Port its look exactly. The `.dc.html` runtime is not available, so read it as HTML and CSS.
+- The `core` lane serves `web/` from disk in debug builds and embeds it in release builds. It must not edit `web/`. A placeholder `web/index.html` is enough for its own tests.
+- Verification for `pwa`: screenshot the mock wall, the focus view and the settings screen with `agent-browser` at 1440×960 and 390×844. Compare them with the canvas.
+- Verification for `core`: the Phase 1 and Phase 2 checks above, run live, with the host cursor recorded before and after.

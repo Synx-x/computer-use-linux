@@ -1,0 +1,379 @@
+<!-- base: artifact-base v1 · house tokens and type in a Design canvas artboard -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Agent desktops viewer</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+body{margin:0;background:#0B0A0F}
+a{color:#7FFF00}a:hover{color:#B2FF66}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid #7FFF00;outline-offset:2px}
+sc-for,sc-if{display:contents}
+.mini{background-color:#05040c;background-image:radial-gradient(1.2px 1.2px at 12% 30%,#fff,transparent),radial-gradient(1px 1px at 34% 70%,#fff,transparent),radial-gradient(1.4px 1.4px at 58% 22%,#E9FFD0,transparent),radial-gradient(1px 1px at 76% 64%,#fff,transparent),radial-gradient(1.2px 1.2px at 88% 18%,#D8CCFF,transparent),radial-gradient(1px 1px at 22% 86%,#fff,transparent),radial-gradient(1px 1px at 66% 88%,#fff,transparent),radial-gradient(60% 70% at 20% 10%,rgba(127,255,0,.16),transparent 70%),radial-gradient(60% 70% at 85% 50%,rgba(167,139,250,.28),transparent 70%)}
+.sky.still *{animation-play-state:paused!important}
+.tile{--ease:cubic-bezier(.22,1,.36,1);transition:backdrop-filter 600ms var(--ease),background-color 600ms var(--ease),box-shadow 600ms var(--ease),opacity 600ms var(--ease),filter 600ms var(--ease);animation:fade 1000ms var(--ease) backwards}
+.tile .win{transition:transform 700ms var(--ease),box-shadow 700ms var(--ease);transform-origin:50% 60%}
+.tile .band{transition:transform 600ms var(--ease)}
+.tile .go{transition:background-color 360ms var(--ease),color 360ms var(--ease)}
+.tile:hover,.tile:focus-within{background-color:rgba(255,255,255,.045)!important;box-shadow:inset 0 0 0 1px rgba(178,255,102,.22),inset 0 -120px 160px -120px rgba(127,255,0,.18)!important}
+.tile:hover .win,.tile:focus-within .win{transform:scale(1.045) translateY(-4px);box-shadow:0 34px 70px -26px rgba(0,0,0,.95),inset 0 0 0 1px rgba(178,255,102,.18)}
+.tile:hover .band,.tile:focus-within .band{transform:translateY(-4px)}
+.tile:hover .go,.tile:focus-within .go{background-color:#7FFF00!important;color:#050409!important}
+.wall:has(.tile:hover) .tile:not(:hover){opacity:.6;filter:saturate(.55) brightness(.85)}
+.stage .win{animation:zoomin 800ms cubic-bezier(.22,1,.36,1) backwards}
+@keyframes fade{from{opacity:0;filter:blur(8px)}}
+@keyframes zoomin{from{opacity:0;transform:scale(.96);filter:blur(6px)}}
+@media (prefers-reduced-motion:reduce){.tile,.tile *,.stage .win{transition:none!important;animation:none!important}}
+.space{position:relative;isolation:isolate;overflow:hidden}
+.space>*{position:relative;z-index:1}
+.space>.sky{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;background:radial-gradient(120% 90% at 85% -10%,#0E0C1C 0%,#06050C 55%,#030208 100%)}
+.sky>div{position:absolute}
+.neb{inset:-25%;background-image:radial-gradient(28% 24% at 24% 16%,rgba(127,255,0,.085),transparent 70%),radial-gradient(30% 32% at 78% 36%,rgba(167,139,250,.15),transparent 70%),radial-gradient(42% 28% at 46% 94%,rgba(96,165,250,.085),transparent 70%),radial-gradient(16% 12% at 62% 60%,rgba(200,182,255,.06),transparent 70%);animation:neb 120s cubic-bezier(.45,0,.55,1) infinite alternate;will-change:transform}
+/* One celestial sphere: every star, the milky way and the constellations turn together round a pole above the top-right corner. */
+.sphere{width:3400px;height:3400px;left:calc(85% - 1700px);top:-1800px;animation:turn 960s linear infinite;will-change:transform;background-image:radial-gradient(1.5px 1.2px at 19px 139px,rgba(255,255,255,.92),transparent),radial-gradient(1.4px 1.0px at 272px 243px,rgba(178,255,102,.9),transparent),radial-gradient(1.6px 1.8px at 118px 457px,rgba(255,255,255,.92),transparent),radial-gradient(1.5px 1.5px at 377px 79px,rgba(178,255,102,.9),transparent),radial-gradient(1.2px 1.4px at 182px 11px,rgba(255,255,255,.92),transparent),radial-gradient(1.4px 1.0px at 231px 278px,rgba(200,182,255,.9),transparent),radial-gradient(1.4px 1.8px at 512px 163px,rgba(255,255,255,.92),transparent),radial-gradient(1.7px 1.6px at 229px 89px,rgba(255,255,255,.92),transparent),radial-gradient(1.7px 1.6px at 133px 461px,rgba(255,255,255,.92),transparent),radial-gradient(1.2px 1.7px at 6px 385px,rgba(170,205,255,.9),transparent),radial-gradient(1.5px 1.7px at 351px 474px,rgba(200,182,255,.9),transparent),radial-gradient(1.5px 1.2px at 126px 218px,rgba(178,255,102,.9),transparent),radial-gradient(0.8px 0.9px at 67px 47px,rgba(200,182,255,.9),transparent),radial-gradient(0.7px 0.9px at 169px 267px,rgba(170,205,255,.9),transparent),radial-gradient(1.0px 1.2px at 243px 183px,rgba(200,182,255,.9),transparent),radial-gradient(1.2px 0.6px at 38px 246px,rgba(255,255,255,.92),transparent),radial-gradient(1.0px 0.8px at 37px 38px,rgba(255,255,255,.92),transparent),radial-gradient(0.9px 1.0px at 66px 174px,rgba(200,182,255,.9),transparent),radial-gradient(0.7px 0.9px at 39px 213px,rgba(255,255,255,.92),transparent),radial-gradient(1.1px 0.9px at 319px 195px,rgba(255,255,255,.92),transparent),radial-gradient(0.9px 1.0px at 41px 46px,rgba(255,255,255,.92),transparent),radial-gradient(1.2px 1.1px at 169px 198px,rgba(255,255,255,.92),transparent),radial-gradient(0.9px 1.1px at 42px 265px,rgba(255,255,255,.92),transparent),radial-gradient(0.8px 0.7px at 11px 117px,rgba(255,255,255,.92),transparent),radial-gradient(0.9px 1.0px at 248px 130px,rgba(255,255,255,.92),transparent),radial-gradient(0.8px 0.7px at 313px 103px,rgba(170,205,255,.9),transparent),radial-gradient(1.1px 0.8px at 226px 255px,rgba(170,205,255,.9),transparent),radial-gradient(0.8px 1.0px at 101px 220px,rgba(170,205,255,.9),transparent),radial-gradient(1.1px 0.8px at 298px 162px,rgba(170,205,255,.9),transparent),radial-gradient(0.7px 0.9px at 20px 32px,rgba(200,182,255,.9),transparent),radial-gradient(1.1px 0.7px at 241px 140px,rgba(170,205,255,.9),transparent),radial-gradient(1.1px 0.8px at 266px 252px,rgba(200,182,255,.9),transparent),radial-gradient(1.0px 1.1px at 319px 231px,rgba(200,182,255,.9),transparent),radial-gradient(0.6px 0.6px at 311px 21px,rgba(200,182,255,.9),transparent),radial-gradient(0.6px 0.6px at 119px 115px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.6px at 161px 157px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.5px at 23px 137px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.6px at 115px 167px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.7px at 16px 15px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.5px at 7px 118px,rgba(170,205,255,.9),transparent),radial-gradient(0.6px 0.7px at 132px 59px,rgba(170,205,255,.9),transparent),radial-gradient(0.6px 0.7px at 117px 167px,rgba(170,205,255,.9),transparent),radial-gradient(0.6px 0.6px at 21px 65px,rgba(170,205,255,.9),transparent),radial-gradient(0.7px 0.6px at 7px 17px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.7px at 98px 17px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.4px at 53px 13px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.7px at 107px 18px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.5px at 22px 79px,rgba(170,205,255,.9),transparent),radial-gradient(0.4px 0.6px at 30px 34px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.4px at 119px 124px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.5px at 130px 48px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.6px at 101px 107px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.7px at 151px 77px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.6px at 154px 164px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.5px at 113px 66px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.5px at 75px 98px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.5px at 162px 62px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.5px at 116px 32px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.5px at 98px 46px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.5px at 156px 63px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.7px at 141px 50px,rgba(255,255,255,.92),transparent),radial-gradient(0.8px 0.6px at 107px 12px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.6px at 65px 61px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.7px at 152px 125px,rgba(170,205,255,.9),transparent),radial-gradient(0.6px 0.8px at 17px 32px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.7px at 157px 157px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.8px at 52px 4px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.6px at 15px 11px,rgba(255,255,255,.92),transparent);background-size:560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px}
+.milky{position:absolute;left:600px;top:1500px;width:2600px;height:520px;transform:rotate(-38deg);background:radial-gradient(50% 50% at 50% 50%,rgba(210,200,255,.10),rgba(170,160,230,.05) 45%,transparent 75%);filter:blur(18px)}
+.chart{position:absolute;inset:0}
+.chart line{stroke:#B2FF66;stroke-width:1.1;stroke-linecap:round;stroke-opacity:.16}
+.chart .halo{fill:url(#hg);opacity:.5}
+.chart .core{fill:#F4FFE8;animation:tw 6s ease-in-out infinite alternate}
+.chart text{font:600 15px 'JetBrains Mono',monospace;letter-spacing:.32em;fill:#B2FF66;opacity:0}
+.cst .ln{animation-delay:inherit}
+.cst line{animation:lnf 70s cubic-bezier(.45,0,.55,1) infinite;animation-delay:inherit}
+.cst text{animation:lbf 70s cubic-bezier(.45,0,.55,1) infinite;animation-delay:inherit}
+.cst .halo{animation:hlf 70s cubic-bezier(.45,0,.55,1) infinite;animation-delay:inherit}
+@keyframes lnf{0%,16%,100%{stroke-opacity:.16}6%,10%{stroke-opacity:.7}}
+@keyframes lbf{0%,16%,100%{opacity:0}6%,10%{opacity:.85}}
+@keyframes hlf{0%,16%,100%{opacity:.5}6%,10%{opacity:1}}
+@keyframes tw{from{opacity:.6}to{opacity:1}}
+@keyframes turn{to{transform:rotate(360deg)}}
+@keyframes neb{to{transform:translate3d(2.5%,-2%,0) scale(1.08) rotate(4deg)}}
+.shoot{top:16%;left:-14%;width:180px;height:1px;background:linear-gradient(90deg,transparent,rgba(233,255,208,.95));border-radius:1px;opacity:0;animation:shoot 19s cubic-bezier(.3,.1,.4,1) 5s infinite}
+@keyframes shoot{0%{opacity:0;transform:rotate(-14deg) translateX(0)}1.5%{opacity:.9}7%{opacity:0;transform:rotate(-14deg) translateX(80vw)}100%{opacity:0;transform:rotate(-14deg) translateX(80vw)}}
+@media (prefers-reduced-motion:reduce){.sky *{animation:none!important}.shoot{display:none}.chart line{stroke-opacity:.3}}
+</style>
+</helmet>
+<div class="space" style="min-height: 100vh; box-sizing: border-box; background-color: #030208; color: #EFEDF4; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 15px; line-height: 1.5; display: flex; flex-direction: column">
+  <div class="sky {{skyClass}}" aria-hidden="true"><div class="neb"></div><div class="sphere"><div class="milky"></div><svg class="chart" viewBox="0 0 3400 3400" width="3400" height="3400" aria-hidden="true"><defs><radialGradient id="hg"><stop offset="0" stop-color="#E9FFD0" stop-opacity=".55"></stop><stop offset="1" stop-color="#7FFF00" stop-opacity="0"></stop></radialGradient></defs><g class="cst" style="animation-delay:0s"><g class="ln"><line x1="1293.1" y1="2538.2" x2="1221.1" y2="2600.6"></line><line x1="1293.1" y1="2538.2" x2="1369.9" y2="2615.0"></line><line x1="1221.1" y1="2600.6" x2="1273.9" y2="2749.4"></line><line x1="1369.9" y1="2615.0" x2="1331.5" y2="2773.4"></line><line x1="1273.9" y1="2749.4" x2="1302.7" y2="2761.4"></line><line x1="1302.7" y1="2761.4" x2="1331.5" y2="2773.4"></line><line x1="1273.9" y1="2749.4" x2="1240.3" y2="2898.2"></line><line x1="1331.5" y1="2773.4" x2="1393.9" y2="2888.6"></line></g><circle class="halo" cx="1293.1" cy="2538.2" r="6"></circle><circle class="core" cx="1293.1" cy="2538.2" r="1.7" style="animation-delay:-8.1s"></circle><circle class="halo" cx="1221.1" cy="2600.6" r="9"></circle><circle class="core" cx="1221.1" cy="2600.6" r="2.6" style="animation-delay:-8.8s"></circle><circle class="halo" cx="1369.9" cy="2615.0" r="6"></circle><circle class="core" cx="1369.9" cy="2615.0" r="1.7" style="animation-delay:-8.8s"></circle><circle class="halo" cx="1273.9" cy="2749.4" r="6"></circle><circle class="core" cx="1273.9" cy="2749.4" r="1.7" style="animation-delay:-4.8s"></circle><circle class="halo" cx="1302.7" cy="2761.4" r="6"></circle><circle class="core" cx="1302.7" cy="2761.4" r="1.7" style="animation-delay:-7.1s"></circle><circle class="halo" cx="1331.5" cy="2773.4" r="6"></circle><circle class="core" cx="1331.5" cy="2773.4" r="1.7" style="animation-delay:-2.9s"></circle><circle class="halo" cx="1240.3" cy="2898.2" r="6"></circle><circle class="core" cx="1240.3" cy="2898.2" r="1.7" style="animation-delay:-8.2s"></circle><circle class="halo" cx="1393.9" cy="2888.6" r="9"></circle><circle class="core" cx="1393.9" cy="2888.6" r="2.6" style="animation-delay:-7.7s"></circle><text x="1221.1" y="2928.2">ORION</text></g><g class="cst" style="animation-delay:7s"><g class="ln"><line x1="1064.3" y1="2090.8" x2="1150.7" y2="2062.0"></line><line x1="1150.7" y1="2062.0" x2="1222.7" y2="2081.2"></line><line x1="1222.7" y1="2081.2" x2="1285.1" y2="2110.0"></line><line x1="1285.1" y1="2110.0" x2="1299.5" y2="2186.8"></line><line x1="1299.5" y1="2186.8" x2="1390.7" y2="2206.0"></line><line x1="1390.7" y1="2206.0" x2="1405.1" y2="2129.2"></line><line x1="1405.1" y1="2129.2" x2="1285.1" y2="2110.0"></line></g><circle class="halo" cx="1064.3" cy="2090.8" r="6"></circle><circle class="core" cx="1064.3" cy="2090.8" r="1.7" style="animation-delay:-3.1s"></circle><circle class="halo" cx="1150.7" cy="2062.0" r="6"></circle><circle class="core" cx="1150.7" cy="2062.0" r="1.7" style="animation-delay:-0.7s"></circle><circle class="halo" cx="1222.7" cy="2081.2" r="6"></circle><circle class="core" cx="1222.7" cy="2081.2" r="1.7" style="animation-delay:-4.0s"></circle><circle class="halo" cx="1285.1" cy="2110.0" r="6"></circle><circle class="core" cx="1285.1" cy="2110.0" r="1.7" style="animation-delay:-5.0s"></circle><circle class="halo" cx="1299.5" cy="2186.8" r="6"></circle><circle class="core" cx="1299.5" cy="2186.8" r="1.7" style="animation-delay:-6.9s"></circle><circle class="halo" cx="1390.7" cy="2206.0" r="9"></circle><circle class="core" cx="1390.7" cy="2206.0" r="2.6" style="animation-delay:-4.4s"></circle><circle class="halo" cx="1405.1" cy="2129.2" r="9"></circle><circle class="core" cx="1405.1" cy="2129.2" r="2.6" style="animation-delay:-0.3s"></circle><text x="1064.3" y="2236.0">URSA MAJOR</text></g><g class="cst" style="animation-delay:14s"><g class="ln"><line x1="1627.6" y1="2214.9" x2="1694.8" y2="2286.9"></line><line x1="1694.8" y1="2286.9" x2="1762.0" y2="2234.1"></line><line x1="1762.0" y1="2234.1" x2="1829.2" y2="2301.3"></line><line x1="1829.2" y1="2301.3" x2="1896.4" y2="2224.5"></line></g><circle class="halo" cx="1627.6" cy="2214.9" r="6"></circle><circle class="core" cx="1627.6" cy="2214.9" r="1.7" style="animation-delay:-7.3s"></circle><circle class="halo" cx="1694.8" cy="2286.9" r="6"></circle><circle class="core" cx="1694.8" cy="2286.9" r="1.7" style="animation-delay:-0.6s"></circle><circle class="halo" cx="1762.0" cy="2234.1" r="9"></circle><circle class="core" cx="1762.0" cy="2234.1" r="2.6" style="animation-delay:-7.2s"></circle><circle class="halo" cx="1829.2" cy="2301.3" r="6"></circle><circle class="core" cx="1829.2" cy="2301.3" r="1.7" style="animation-delay:-1.6s"></circle><circle class="halo" cx="1896.4" cy="2224.5" r="6"></circle><circle class="core" cx="1896.4" cy="2224.5" r="1.7" style="animation-delay:-3.0s"></circle><text x="1627.6" y="2331.3">CASSIOPEIA</text></g><g class="cst" style="animation-delay:21s"><g class="ln"><line x1="644.1" y1="2525.0" x2="740.1" y2="2621.0"></line><line x1="740.1" y1="2621.0" x2="860.1" y2="2755.4"></line><line x1="653.7" y1="2683.4" x2="740.1" y2="2621.0"></line><line x1="740.1" y1="2621.0" x2="831.3" y2="2549.0"></line></g><circle class="halo" cx="644.1" cy="2525.0" r="9"></circle><circle class="core" cx="644.1" cy="2525.0" r="2.6" style="animation-delay:-7.1s"></circle><circle class="halo" cx="740.1" cy="2621.0" r="6"></circle><circle class="core" cx="740.1" cy="2621.0" r="1.7" style="animation-delay:-1.3s"></circle><circle class="halo" cx="860.1" cy="2755.4" r="6"></circle><circle class="core" cx="860.1" cy="2755.4" r="1.7" style="animation-delay:-1.3s"></circle><circle class="halo" cx="653.7" cy="2683.4" r="6"></circle><circle class="core" cx="653.7" cy="2683.4" r="1.7" style="animation-delay:-4.6s"></circle><circle class="halo" cx="831.3" cy="2549.0" r="6"></circle><circle class="core" cx="831.3" cy="2549.0" r="1.7" style="animation-delay:-6.5s"></circle><circle class="halo" cx="802.5" cy="2693.0" r="6"></circle><circle class="core" cx="802.5" cy="2693.0" r="1.7" style="animation-delay:-7.6s"></circle><text x="644.1" y="2785.4">CYGNUS</text></g><g class="cst" style="animation-delay:28s"><g class="ln"><line x1="1495.1" y1="2862.1" x2="1523.9" y2="2910.1"></line><line x1="1523.9" y1="2910.1" x2="1567.1" y2="2900.5"></line><line x1="1567.1" y1="2900.5" x2="1557.5" y2="2962.9"></line><line x1="1557.5" y1="2962.9" x2="1514.3" y2="2972.5"></line><line x1="1514.3" y1="2972.5" x2="1523.9" y2="2910.1"></line></g><circle class="halo" cx="1495.1" cy="2862.1" r="9"></circle><circle class="core" cx="1495.1" cy="2862.1" r="2.6" style="animation-delay:-6.2s"></circle><circle class="halo" cx="1523.9" cy="2910.1" r="6"></circle><circle class="core" cx="1523.9" cy="2910.1" r="1.7" style="animation-delay:-8.5s"></circle><circle class="halo" cx="1567.1" cy="2900.5" r="6"></circle><circle class="core" cx="1567.1" cy="2900.5" r="1.7" style="animation-delay:-4.4s"></circle><circle class="halo" cx="1557.5" cy="2962.9" r="6"></circle><circle class="core" cx="1557.5" cy="2962.9" r="1.7" style="animation-delay:-8.5s"></circle><circle class="halo" cx="1514.3" cy="2972.5" r="6"></circle><circle class="core" cx="1514.3" cy="2972.5" r="1.7" style="animation-delay:-0.8s"></circle><text x="1495.1" y="3002.5">LYRA</text></g><g class="cst" style="animation-delay:35s"><g class="ln"><line x1="2250.9" y1="737.0" x2="2178.9" y2="799.4"></line><line x1="2250.9" y1="737.0" x2="2327.7" y2="813.8"></line><line x1="2178.9" y1="799.4" x2="2231.7" y2="948.2"></line><line x1="2327.7" y1="813.8" x2="2289.3" y2="972.2"></line><line x1="2231.7" y1="948.2" x2="2260.5" y2="960.2"></line><line x1="2260.5" y1="960.2" x2="2289.3" y2="972.2"></line><line x1="2231.7" y1="948.2" x2="2198.1" y2="1097.0"></line><line x1="2289.3" y1="972.2" x2="2351.7" y2="1087.4"></line></g><circle class="halo" cx="2250.9" cy="737.0" r="6"></circle><circle class="core" cx="2250.9" cy="737.0" r="1.7" style="animation-delay:-2.0s"></circle><circle class="halo" cx="2178.9" cy="799.4" r="9"></circle><circle class="core" cx="2178.9" cy="799.4" r="2.6" style="animation-delay:-4.7s"></circle><circle class="halo" cx="2327.7" cy="813.8" r="6"></circle><circle class="core" cx="2327.7" cy="813.8" r="1.7" style="animation-delay:-2.6s"></circle><circle class="halo" cx="2231.7" cy="948.2" r="6"></circle><circle class="core" cx="2231.7" cy="948.2" r="1.7" style="animation-delay:-6.6s"></circle><circle class="halo" cx="2260.5" cy="960.2" r="6"></circle><circle class="core" cx="2260.5" cy="960.2" r="1.7" style="animation-delay:-5.7s"></circle><circle class="halo" cx="2289.3" cy="972.2" r="6"></circle><circle class="core" cx="2289.3" cy="972.2" r="1.7" style="animation-delay:-4.7s"></circle><circle class="halo" cx="2198.1" cy="1097.0" r="6"></circle><circle class="core" cx="2198.1" cy="1097.0" r="1.7" style="animation-delay:-7.6s"></circle><circle class="halo" cx="2351.7" cy="1087.4" r="9"></circle><circle class="core" cx="2351.7" cy="1087.4" r="2.6" style="animation-delay:-5.0s"></circle><text x="2178.9" y="1127.0">ORION</text></g><g class="cst" style="animation-delay:42s"><g class="ln"><line x1="2335.7" y1="1414.8" x2="2422.1" y2="1386.0"></line><line x1="2422.1" y1="1386.0" x2="2494.1" y2="1405.2"></line><line x1="2494.1" y1="1405.2" x2="2556.5" y2="1434.0"></line><line x1="2556.5" y1="1434.0" x2="2570.9" y2="1510.8"></line><line x1="2570.9" y1="1510.8" x2="2662.1" y2="1530.0"></line><line x1="2662.1" y1="1530.0" x2="2676.5" y2="1453.2"></line><line x1="2676.5" y1="1453.2" x2="2556.5" y2="1434.0"></line></g><circle class="halo" cx="2335.7" cy="1414.8" r="6"></circle><circle class="core" cx="2335.7" cy="1414.8" r="1.7" style="animation-delay:-2.8s"></circle><circle class="halo" cx="2422.1" cy="1386.0" r="6"></circle><circle class="core" cx="2422.1" cy="1386.0" r="1.7" style="animation-delay:-3.4s"></circle><circle class="halo" cx="2494.1" cy="1405.2" r="6"></circle><circle class="core" cx="2494.1" cy="1405.2" r="1.7" style="animation-delay:-7.6s"></circle><circle class="halo" cx="2556.5" cy="1434.0" r="6"></circle><circle class="core" cx="2556.5" cy="1434.0" r="1.7" style="animation-delay:-8.1s"></circle><circle class="halo" cx="2570.9" cy="1510.8" r="6"></circle><circle class="core" cx="2570.9" cy="1510.8" r="1.7" style="animation-delay:-1.9s"></circle><circle class="halo" cx="2662.1" cy="1530.0" r="9"></circle><circle class="core" cx="2662.1" cy="1530.0" r="2.6" style="animation-delay:-7.7s"></circle><circle class="halo" cx="2676.5" cy="1453.2" r="9"></circle><circle class="core" cx="2676.5" cy="1453.2" r="2.6" style="animation-delay:-8.7s"></circle><text x="2335.7" y="1560.0">URSA MAJOR</text></g><g class="cst" style="animation-delay:49s"><g class="ln"><line x1="1772.4" y1="1185.1" x2="1839.6" y2="1257.1"></line><line x1="1839.6" y1="1257.1" x2="1906.8" y2="1204.3"></line><line x1="1906.8" y1="1204.3" x2="1974.0" y2="1271.5"></line><line x1="1974.0" y1="1271.5" x2="2041.2" y2="1194.7"></line></g><circle class="halo" cx="1772.4" cy="1185.1" r="6"></circle><circle class="core" cx="1772.4" cy="1185.1" r="1.7" style="animation-delay:-4.7s"></circle><circle class="halo" cx="1839.6" cy="1257.1" r="6"></circle><circle class="core" cx="1839.6" cy="1257.1" r="1.7" style="animation-delay:-5.2s"></circle><circle class="halo" cx="1906.8" cy="1204.3" r="9"></circle><circle class="core" cx="1906.8" cy="1204.3" r="2.6" style="animation-delay:-1.8s"></circle><circle class="halo" cx="1974.0" cy="1271.5" r="6"></circle><circle class="core" cx="1974.0" cy="1271.5" r="1.7" style="animation-delay:-4.8s"></circle><circle class="halo" cx="2041.2" cy="1194.7" r="6"></circle><circle class="core" cx="2041.2" cy="1194.7" r="1.7" style="animation-delay:-4.5s"></circle><text x="1772.4" y="1301.5">CASSIOPEIA</text></g><g class="cst" style="animation-delay:56s"><g class="ln"><line x1="2755.9" y1="875.0" x2="2851.9" y2="971.0"></line><line x1="2851.9" y1="971.0" x2="2971.9" y2="1105.4"></line><line x1="2765.5" y1="1033.4" x2="2851.9" y2="971.0"></line><line x1="2851.9" y1="971.0" x2="2943.1" y2="899.0"></line></g><circle class="halo" cx="2755.9" cy="875.0" r="9"></circle><circle class="core" cx="2755.9" cy="875.0" r="2.6" style="animation-delay:-5.4s"></circle><circle class="halo" cx="2851.9" cy="971.0" r="6"></circle><circle class="core" cx="2851.9" cy="971.0" r="1.7" style="animation-delay:-0.2s"></circle><circle class="halo" cx="2971.9" cy="1105.4" r="6"></circle><circle class="core" cx="2971.9" cy="1105.4" r="1.7" style="animation-delay:-8.7s"></circle><circle class="halo" cx="2765.5" cy="1033.4" r="6"></circle><circle class="core" cx="2765.5" cy="1033.4" r="1.7" style="animation-delay:-4.6s"></circle><circle class="halo" cx="2943.1" cy="899.0" r="6"></circle><circle class="core" cx="2943.1" cy="899.0" r="1.7" style="animation-delay:-3.6s"></circle><circle class="halo" cx="2914.3" cy="1043.0" r="6"></circle><circle class="core" cx="2914.3" cy="1043.0" r="1.7" style="animation-delay:-7.2s"></circle><text x="2755.9" y="1135.4">CYGNUS</text></g><g class="cst" style="animation-delay:63s"><g class="ln"><line x1="1904.9" y1="537.9" x2="1933.7" y2="585.9"></line><line x1="1933.7" y1="585.9" x2="1976.9" y2="576.3"></line><line x1="1976.9" y1="576.3" x2="1967.3" y2="638.7"></line><line x1="1967.3" y1="638.7" x2="1924.1" y2="648.3"></line><line x1="1924.1" y1="648.3" x2="1933.7" y2="585.9"></line></g><circle class="halo" cx="1904.9" cy="537.9" r="9"></circle><circle class="core" cx="1904.9" cy="537.9" r="2.6" style="animation-delay:-5.1s"></circle><circle class="halo" cx="1933.7" cy="585.9" r="6"></circle><circle class="core" cx="1933.7" cy="585.9" r="1.7" style="animation-delay:-4.4s"></circle><circle class="halo" cx="1976.9" cy="576.3" r="6"></circle><circle class="core" cx="1976.9" cy="576.3" r="1.7" style="animation-delay:-6.2s"></circle><circle class="halo" cx="1967.3" cy="638.7" r="6"></circle><circle class="core" cx="1967.3" cy="638.7" r="1.7" style="animation-delay:-0.6s"></circle><circle class="halo" cx="1924.1" cy="648.3" r="6"></circle><circle class="core" cx="1924.1" cy="648.3" r="1.7" style="animation-delay:-4.8s"></circle><text x="1904.9" y="678.3">LYRA</text></g></svg></div><div class="shoot"></div></div>
+
+  <div class="content" aria-hidden="{{settingsOpen}}" style="{{contentStyle}}">
+  <header style="{{headerStyle}}">
+    <div style="display: flex; align-items: baseline; gap: 12px">
+      <span style="font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 0.2em">AGENT DESKTOPS</span>
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em; color: #8F8A9C">HYPRLAND · dusk</span>
+    </div>
+    <div role="group" aria-label="View" style="display: flex; gap: 2px; padding: 3px; background: rgba(255, 255, 255, 0.05); border-radius: 999px">
+      <button type="button" onClick="{{showGrid}}" aria-pressed="{{isGrid}}" style="{{gridBtnStyle}}">Wall</button>
+      <button type="button" onClick="{{showFocus}}" aria-pressed="{{isFocus}}" style="{{focusBtnStyle}}">Focus</button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap">
+      <span style="display: flex; align-items: center; gap: 7px; font-size: 13px; color: #B3AFBE"><span style="width: 6px; height: 6px; border-radius: 50%; background: #7FFF00"></span>{{liveCount}} live</span>
+      <span style="display: flex; align-items: center; gap: 7px; font-size: 13px; color: #F2B544"><span style="width: 6px; height: 6px; border-radius: 50%; background: #F2B544"></span>{{needsCount}} needs you</span>
+      <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 999px; border: 0; background: rgba(255, 255, 255, 0.06); font-size: 13px; font-weight: 500; display: flex; align-items: center; gap: 8px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+        New desktop
+      </button>
+      <button type="button" onClick="{{toggleSettings}}" aria-label="Settings" aria-expanded="{{settingsOpen}}" style="width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border-radius: 999px; border: 0; background: {{gearBg}}; color: #D6D3DE">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"></path><circle cx="16" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></svg>
+      </button>
+    </div>
+  </header>
+
+  <sc-if value="{{isGrid}}" hint-placeholder-val="{{true}}">
+    <section class="wall" aria-label="All desktops" style="flex: 1; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); grid-auto-rows: minmax(360px, 1fr)">
+      <sc-for list="{{desktops}}" as="d" hint-placeholder-count="4">
+        <article class="tile" style="{{d.tileStyle}}">
+          <button type="button" onClick="{{d.focus}}" aria-label="Focus {{d.name}}" style="position: absolute; inset: 0; padding: 0; border: 0; background: transparent">
+            <sc-if value="{{d.hasWindow}}" hint-placeholder-val="{{true}}">
+              <span class="win" style="position: absolute; inset: 14% 13% 30% 13%; display: flex; flex-direction: column; background: rgba(14, 13, 22, 0.88); border-radius: 10px; overflow: hidden; box-shadow: 0 20px 50px -24px rgba(0, 0, 0, 0.9), inset 0 0 0 1px rgba(255, 255, 255, 0.05); text-align: left">
+                <span style="padding: 7px 12px; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #8F8A9C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{d.windowTitle}}</span>
+                <span style="padding: 4px 12px 12px; display: flex; flex-direction: column; gap: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #ECEAF3; white-space: pre">
+                  <sc-for list="{{d.lines}}" as="ln" hint-placeholder-count="4"><span style="display: block; overflow: hidden; text-overflow: ellipsis">{{ln}}</span></sc-for>
+                </span>
+              </span>
+            </sc-if>
+            <sc-if value="{{d.isIdle}}" hint-placeholder-val="{{false}}">
+              <span style="position: absolute; inset: 0 0 22% 0; display: flex; align-items: center; justify-content: center; font-size: 13px; color: #6A6675">Waiting for an agent</span>
+            </sc-if>
+          </button>
+          <div style="position: absolute; top: 16px; left: 20px; right: 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; pointer-events: none">
+            <span style="display: flex; align-items: center; gap: 8px; font-size: 12px; color: {{d.statusColor}}"><span style="{{d.dotStyle}}"></span>{{d.statusWord}}</span>
+            <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6A6675">{{d.display}} · {{d.res}}</span>
+          </div>
+          <div class="band" style="position: absolute; left: 0; right: 0; bottom: 0; padding: 40px 20px 16px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; background: linear-gradient(to top, rgba(3, 2, 8, 0.9), rgba(3, 2, 8, 0.6) 55%, rgba(3, 2, 8, 0)); pointer-events: none">
+            <div style="min-width: 0">
+              <div style="font-size: 20px; font-weight: 600; letter-spacing: -0.01em">{{d.name}}</div>
+              <div style="font-size: 14px; color: #D6D3DE">{{d.task}}</div>
+              <div style="font-size: 12px; color: #8F8A9C">{{d.agent}} · {{d.last}}, {{d.ago}} ago</div>
+            </div>
+            <span style="display: flex; gap: 4px; pointer-events: auto">
+              <button type="button" onClick="{{d.drive}}" style="min-height: 44px; padding: 0 14px; border-radius: 999px; border: 0; background: transparent; color: #B3AFBE; font-size: 13px; font-weight: 500">Take over</button>
+              <button type="button" class="go" onClick="{{d.focus}}" style="min-height: 44px; padding: 0 18px; border-radius: 999px; border: 0; background: rgba(127, 255, 0, 0.14); color: #B2FF66; font-size: 13px; font-weight: 600">Focus</button>
+            </span>
+          </div>
+        </article>
+      </sc-for>
+    </section>
+  </sc-if>
+
+  <sc-if value="{{isFocus}}" hint-placeholder-val="{{false}}">
+    <section aria-label="Focused desktop" style="flex: 1; display: flex; flex-wrap: wrap; min-height: 0">
+      <div class="stage" style="{{stageStyle}}">
+        <sc-if value="{{f.hasWindow}}" hint-placeholder-val="{{true}}">
+          <div class="win" style="position: absolute; inset: 120px 8% 120px 8%; display: flex; flex-direction: column; background: rgba(14, 13, 22, 0.9); border-radius: 12px; overflow: hidden; box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.95), inset 0 0 0 1px rgba(255, 255, 255, 0.05)">
+            <div style="padding: 10px 16px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: #8F8A9C">{{f.windowTitle}}</div>
+            <div style="padding: 8px 20px 20px; display: flex; flex-direction: column; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 16px; color: #ECEAF3; white-space: pre">
+              <sc-for list="{{f.lines}}" as="ln" hint-placeholder-count="4"><div>{{ln}}</div></sc-for>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{f.isIdle}}" hint-placeholder-val="{{false}}">
+          <div style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #6A6675">Waiting for an agent</div>
+        </sc-if>
+        <div style="position: absolute; top: 0; left: 0; right: 0; padding: 20px clamp(16px, 2vw, 28px) 40px; display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; background: linear-gradient(to bottom, rgba(3, 2, 8, 0.85), rgba(3, 2, 8, 0))">
+          <div>
+            <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #8F8A9C">{{f.display}} · {{f.compositor}} · {{f.res}}</div>
+            <h1 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 300; font-size: clamp(28px, 3.4vw, 44px); letter-spacing: -0.03em; line-height: 1.1">{{f.name}}</h1>
+            <div style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: {{f.statusColor}}"><span style="{{f.dotStyle}}"></span>{{f.statusWord}} <span style="color: #8F8A9C">· {{f.task}}</span></div>
+          </div>
+          <div role="group" aria-label="Control" style="display: flex; gap: 2px; padding: 3px; background: rgba(255, 255, 255, 0.06); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 999px">
+            <button type="button" onClick="{{setWatch}}" aria-pressed="{{isWatch}}" style="{{watchBtnStyle}}">Watch</button>
+            <button type="button" onClick="{{setDrive}}" aria-pressed="{{isDrive}}" style="{{driveBtnStyle}}">Take over</button>
+          </div>
+        </div>
+        <sc-if value="{{isDrive}}" hint-placeholder-val="{{false}}">
+          <div role="status" style="position: absolute; top: 112px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 12px; padding: 6px 6px 6px 16px; border-radius: 999px; background: #F2B544; color: #0B0A0F; white-space: nowrap; box-shadow: 0 12px 30px -12px rgba(0, 0, 0, 0.8)">
+            <span style="font-size: 13px; font-weight: 600">You're driving. The agent is paused.</span>
+            <button type="button" onClick="{{setWatch}}" style="min-height: 36px; padding: 0 14px; border-radius: 999px; border: 0; background: #0B0A0F; color: #F2B544; font-size: 12px; font-weight: 700">Hand back</button>
+          </div>
+        </sc-if>
+        <div style="position: absolute; left: 0; right: 0; bottom: 0; padding: 40px clamp(16px, 2vw, 28px) 20px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; background: linear-gradient(to top, rgba(3, 2, 8, 0.85), rgba(3, 2, 8, 0))">
+          <div style="display: flex; flex-wrap: wrap; gap: 4px">
+            <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 999px; border: 0; background: rgba(255, 255, 255, 0.06); font-size: 13px">Pause agent</button>
+            <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 999px; border: 0; background: rgba(255, 255, 255, 0.06); font-size: 13px">Save screenshot</button>
+            <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 999px; border: 0; background: rgba(255, 255, 255, 0.06); font-size: 13px">Open in VNC viewer</button>
+            <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 999px; border: 0; background: transparent; color: #FF6B80; font-size: 13px">Stop desktop</button>
+          </div>
+          <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.08em; color: #8F8A9C">{{modeLabel}}</span>
+        </div>
+      </div>
+
+      <aside aria-label="Other desktops and agent actions" style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column">
+        <sc-for list="{{others}}" as="o" hint-placeholder-count="3">
+          <button type="button" class="tile" onClick="{{o.focus}}" aria-label="Focus {{o.name}}" style="{{o.railStyle}}">
+            <sc-if value="{{o.hasWindow}}" hint-placeholder-val="{{true}}">
+              <span class="win" style="position: absolute; inset: 22% 14% 36% 14%; display: flex; flex-direction: column; background: rgba(14, 13, 22, 0.88); border-radius: 8px; overflow: hidden; box-shadow: 0 16px 40px -20px rgba(0, 0, 0, 0.9), inset 0 0 0 1px rgba(255, 255, 255, 0.05)">
+                <span style="padding: 5px 9px; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #8F8A9C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{o.windowTitle}}</span>
+                <span style="padding: 2px 9px 8px; display: flex; flex-direction: column; gap: 2px; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #ECEAF3; white-space: pre; overflow: hidden">
+                  <sc-for list="{{o.lines}}" as="ln" hint-placeholder-count="3"><span style="display: block; overflow: hidden; text-overflow: ellipsis">{{ln}}</span></sc-for>
+                </span>
+              </span>
+            </sc-if>
+            <sc-if value="{{o.isIdle}}" hint-placeholder-val="{{false}}">
+              <span style="position: absolute; inset: 0 0 28% 0; display: flex; align-items: center; justify-content: center; font-size: 12px; color: #6A6675">Waiting for an agent</span>
+            </sc-if>
+            <span style="position: absolute; top: 10px; left: 14px; right: 14px; display: flex; justify-content: space-between; align-items: center; gap: 8px">
+              <span style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: {{o.statusColor}}"><span style="{{o.dotStyle}}"></span>{{o.statusWord}}</span>
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6A6675">{{o.display}}</span>
+            </span>
+            <span class="band" style="position: absolute; left: 0; right: 0; bottom: 0; padding: 26px 14px 10px; display: flex; justify-content: space-between; align-items: flex-end; gap: 8px; background: linear-gradient(to top, rgba(3, 2, 8, 0.9), rgba(3, 2, 8, 0.6) 55%, rgba(3, 2, 8, 0))">
+              <span style="min-width: 0; display: flex; flex-direction: column">
+                <span style="font-size: 14px; font-weight: 600">{{o.name}}</span>
+                <span style="font-size: 12px; color: #8F8A9C; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">{{o.task}}</span>
+              </span>
+              <span class="go" style="flex-shrink: 0; padding: 4px 12px; border-radius: 999px; background: rgba(127, 255, 0, 0.14); color: #B2FF66; font-size: 12px; font-weight: 600">Focus</span>
+            </span>
+          </button>
+        </sc-for>
+        <div style="flex: 1; padding: 16px clamp(14px, 1.6vw, 20px) 20px; display: flex; flex-direction: column; gap: 2px; background: {{logBg}}; box-shadow: inset 0.5px 0 0 rgba(255, 255, 255, 0.08)">
+          <div style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.1em; color: #8F8A9C; padding-bottom: 8px">AGENT ACTIONS · {{f.agent}}</div>
+          <sc-for list="{{f.log}}" as="e" hint-placeholder-count="4">
+            <div style="display: grid; grid-template-columns: 64px 56px minmax(0, 1fr); gap: 8px; padding: 6px 0; font-size: 13px; text-shadow: 0 1px 10px #030208">
+              <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6A6675; padding-top: 2px">{{e.t}}</span>
+              <span style="font-weight: 600; color: #B2FF66">{{e.verb}}</span>
+              <span style="color: #B3AFBE">{{e.detail}}</span>
+            </div>
+          </sc-for>
+        </div>
+      </aside>
+    </section>
+  </sc-if>
+  </div>
+
+  <div role="dialog" aria-modal="true" aria-label="Settings" aria-hidden="{{settingsHidden}}" style="{{overlayStyle}}">
+    <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 60px; padding: 8px clamp(16px, 2vw, 28px); box-sizing: border-box">
+      <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.16em; color: #8F8A9C">AGENT DESKTOPS · CONFIG</span>
+      <button type="button" onClick="{{toggleSettings}}" style="min-height: 44px; padding: 0 20px; border-radius: 999px; border: 0; background: rgba(127, 255, 0, 0.14); color: #B2FF66; font-size: 13px; font-weight: 600">Done</button>
+    </div>
+    <div style="{{panelStyle}}">
+      <div style="display: flex; flex-direction: column; gap: 8px">
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.16em; color: #7FFF00">THEME</span>
+        <h2 style="margin: 0; font-family: 'Bricolage Grotesque', system-ui, sans-serif; font-weight: 250; font-size: clamp(44px, 6vw, 72px); letter-spacing: -0.045em; line-height: 1">Settings</h2>
+        <p style="margin: 0; max-width: 520px; font-size: 15px; color: #B3AFBE">Changes apply to the whole page as you pick them. The sky stays behind everything.</p>
+      </div>
+
+      <section aria-labelledby="set-glass" style="display: flex; flex-direction: column; gap: 14px">
+        <div>
+          <h3 id="set-glass" style="margin: 0; font-size: 17px; font-weight: 600">Glass</h3>
+          <p style="margin: 0; font-size: 13px; color: #8F8A9C">How much of the sky shows through the top bar, tiles and side panel.</p>
+        </div>
+        <div role="radiogroup" aria-labelledby="set-glass" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px">
+          <sc-for list="{{blurOptions}}" as="b" hint-placeholder-count="3">
+            <button type="button" role="radio" aria-checked="{{b.on}}" onClick="{{b.pick}}" style="{{b.style}}">
+              <span class="mini" style="position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden">
+                <span style="{{b.barStyle}}"></span>
+                <span style="{{b.tileStyle}}"></span>
+                <span style="{{b.tileStyle2}}"></span>
+              </span>
+              <span style="display: flex; justify-content: space-between; align-items: center; gap: 10px; width: 100%">
+                <span style="display: flex; flex-direction: column; text-align: left">
+                  <span style="font-size: 14px; font-weight: 600">{{b.label}}</span>
+                  <span style="font-size: 12px; color: #8F8A9C">{{b.note}}</span>
+                </span>
+                <span style="{{b.dot}}"></span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </section>
+
+      <section aria-labelledby="set-sky" style="display: flex; flex-direction: column; gap: 14px">
+        <div>
+          <h3 id="set-sky" style="margin: 0; font-size: 17px; font-weight: 600">Sky</h3>
+          <p style="margin: 0; font-size: 13px; color: #8F8A9C">Let the stars turn, or hold them still.</p>
+        </div>
+        <div role="radiogroup" aria-labelledby="set-sky" style="display: flex; gap: 4px; padding: 3px; width: fit-content; background: rgba(255, 255, 255, 0.05); border-radius: 999px">
+          <sc-for list="{{skyOptions}}" as="k" hint-placeholder-count="2">
+            <button type="button" role="radio" aria-checked="{{k.on}}" onClick="{{k.pick}}" style="{{k.style}}">{{k.label}}</button>
+          </sc-for>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"startView":{"editor":"enum","options":["wall","focus"],"default":"wall"},"blur":{"editor":"enum","options":["standard","bleed","clear"],"default":"standard"},"$preview":{"width":1440,"height":960}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { view: null, focusId: 'gods', mode: 'watch', blur: null, settings: false, sky: null };
+  }
+  data() {
+    return [
+      { id: 'ytm', name: 'ytm-refine', display: 'wayland-2', compositor: 'sway headless', res: '1280×800',
+        agent: 'Claude · ytm-player', task: 'Refine the Home grid warm-up', status: 'running',
+        last: 'typed "gg" in foot', ago: '4s', windowTitle: 'foot — ytm',
+        lines: ['Home   Explore   Library', 'Quick picks ──────────────', '1  Midnight City      M83', '2  Intro              The xx'],
+        log: [{ t: '17:42:08', verb: 'type', detail: '"gg" to jump to the top of Quick picks' },
+              { t: '17:42:05', verb: 'capture', detail: 'grim on wayland-2, 1280×800' },
+              { t: '17:41:58', verb: 'key', detail: 'Return on "Midnight City"' },
+              { t: '17:41:51', verb: 'launch', detail: 'foot -e ytm' }] },
+      { id: 'gods', name: 'gods-eye-qa', display: 'wayland-3', compositor: 'sway headless', res: '1440×900',
+        agent: 'Codex · gods-eye-view', task: 'Verify the Map Source tray', status: 'needs',
+        last: 'stopped at a login prompt', ago: '1m', windowTitle: 'Chromium — localhost:5173',
+        lines: ['Map Source', '○ Satellite    ● Terrain', 'ACQUIRING…', 'Sign in to continue'],
+        log: [{ t: '17:41:12', verb: 'wait', detail: 'Login prompt. Asked for a human to sign in' },
+              { t: '17:41:09', verb: 'click', detail: 'Terrain at 412,318' },
+              { t: '17:41:02', verb: 'capture', detail: 'grim on wayland-3, 1440×900' },
+              { t: '17:40:47', verb: 'launch', detail: 'chromium http://localhost:5173' }] },
+      { id: 'hk', name: 'hk-pulse', display: 'wayland-4', compositor: 'labwc headless', res: '1280×800',
+        agent: 'Claude · harness-kit', task: 'Replay the pulse browser workflow', status: 'running',
+        last: 'clicked "Save filter"', ago: '12s', windowTitle: 'Firefox — pulse replay',
+        lines: ['Filters', 'Status   [ Open      ▾ ]', 'Owner    [ me        ▾ ]', '[ Save filter ]'],
+        log: [{ t: '17:42:00', verb: 'click', detail: '"Save filter" at 188,402' },
+              { t: '17:41:55', verb: 'type', detail: 'Owner field: "me"' },
+              { t: '17:41:50', verb: 'capture', detail: 'grim on wayland-4, 1280×800' },
+              { t: '17:41:31', verb: 'launch', detail: 'firefox --new-instance' }] },
+      { id: 'spare', name: 'spare-1', display: 'wayland-5', compositor: 'sway headless', res: '1280×800',
+        agent: 'Unassigned', task: 'Ready for the next agent', status: 'idle',
+        last: 'started', ago: '6m', windowTitle: '', lines: [], log: [] }
+    ];
+  }
+  renderVals() {
+    const view = this.state.view || this.props.startView || 'wall';
+    const blur = this.state.blur || this.props.blur || 'standard';
+    const BLUR = {
+      standard: { label: 'Standard', note: 'Frosted. 40% bar, 6px tiles', bg: 'rgba(3, 2, 8, 0.4)', px: 20, tile: 'rgba(255, 255, 255, 0.015)', tpx: 6, log: 0.3 },
+      bleed: { label: 'Bleed', note: 'Bar fades right, lighter tiles', bg: 'linear-gradient(to right, rgba(3, 2, 8, 0.4), rgba(3, 2, 8, 0.3) 45%, rgba(3, 2, 8, 0.2))', px: 16, tile: 'rgba(255, 255, 255, 0.01)', tpx: 3, log: 0.2 },
+      clear: { label: 'Clear', note: 'Barely there. Sky in full', bg: 'rgba(3, 2, 8, 0.12)', px: 10, tile: 'rgba(255, 255, 255, 0.004)', tpx: 0, log: 0.1 }
+    };
+    const bz = BLUR[blur] || BLUR.standard;
+    const open = this.state.settings;
+    const sky = this.state.sky || 'moving';
+    const st = { running: ['#7FFF00', 'Running'], needs: ['#F2B544', 'Needs you'], idle: ['#6A6675', 'Idle'] };
+    const segOn = 'min-height: 40px; padding: 0 18px; border-radius: 999px; border: 0; background: rgba(255, 255, 255, 0.92); color: #050409; font-size: 13px; font-weight: 600';
+    const segOff = 'min-height: 40px; padding: 0 18px; border-radius: 999px; border: 0; background: transparent; color: #8F8A9C; font-size: 13px; font-weight: 500';
+    const all = this.data().map((d, i) => ({
+      ...d,
+      hasWindow: d.status !== 'idle',
+      isIdle: d.status === 'idle',
+      needs: d.status === 'needs',
+      statusWord: st[d.status][1],
+      statusColor: d.status === 'idle' ? '#6A6675' : st[d.status][0],
+      dotStyle: 'display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: ' + st[d.status][0],
+      tileStyle: 'position: relative; overflow: hidden; animation-delay: ' + (80 + i * 110) + 'ms; background-color: ' + bz.tile + '; backdrop-filter: blur(' + bz.tpx + 'px); -webkit-backdrop-filter: blur(' + bz.tpx + 'px); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.08)' + (d.status === 'needs' ? ', inset 0 0 0 1px rgba(242, 181, 68, 0.45)' : ''),
+      railStyle: 'position: relative; display: block; width: 100%; aspect-ratio: 16 / 9; padding: 0; border: 0; text-align: left; overflow: hidden; color: inherit; animation-delay: ' + (60 + i * 90) + 'ms; background-color: ' + bz.tile + '; backdrop-filter: blur(' + bz.tpx + 'px); -webkit-backdrop-filter: blur(' + bz.tpx + 'px); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.08)' + (d.status === 'needs' ? ', inset 0 0 0 1px rgba(242, 181, 68, 0.45)' : ''),
+      focus: () => this.setState({ view: 'focus', focusId: d.id, mode: 'watch' }),
+      drive: () => this.setState({ view: 'focus', focusId: d.id, mode: 'drive' })
+    }));
+    const f = all.find((d) => d.id === this.state.focusId) || all[0];
+    const drive = this.state.mode === 'drive';
+    return {
+      desktops: all,
+      f: f,
+      others: all.filter((d) => d.id !== f.id),
+      isGrid: view === 'wall',
+      isFocus: view === 'focus',
+      isWatch: !drive,
+      isDrive: drive,
+      liveCount: all.filter((d) => d.status !== 'idle').length,
+      needsCount: all.filter((d) => d.status === 'needs').length,
+      gridBtnStyle: view === 'wall' ? segOn : segOff,
+      focusBtnStyle: view === 'focus' ? segOn : segOff,
+      watchBtnStyle: drive ? segOff : segOn,
+      driveBtnStyle: drive ? segOn.replace('rgba(255, 255, 255, 0.92)', '#F2B544') : segOff,
+      modeLabel: drive ? 'YOU ARE DRIVING · agent paused' : 'WATCHING · read-only',
+      stageStyle: 'flex: 999 1 640px; min-width: 0; min-height: 640px; position: relative; overflow: hidden; background: ' + bz.tile + '; backdrop-filter: blur(' + bz.tpx + 'px); -webkit-backdrop-filter: blur(' + bz.tpx + 'px); box-shadow: inset 0 0 0 ' + (drive ? '2px #F2B544' : '0.5px rgba(255, 255, 255, 0.06)'),
+      headerStyle: 'position: relative; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; min-height: 60px; box-sizing: border-box; padding: 8px clamp(16px, 2vw, 28px); background: ' + bz.bg + '; backdrop-filter: blur(' + bz.px + 'px) saturate(140%); -webkit-backdrop-filter: blur(' + bz.px + 'px) saturate(140%); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, 0.06); transition: background 400ms ease',
+      settingsOpen: this.state.settings,
+      settingsHidden: !this.state.settings,
+      contentStyle: 'flex: 1; display: flex; flex-direction: column; min-height: 0; transition: opacity 650ms cubic-bezier(.22, 1, .36, 1) ' + (open ? '0ms' : '240ms') + ', filter 650ms cubic-bezier(.22, 1, .36, 1) ' + (open ? '0ms' : '240ms') + ', transform 650ms cubic-bezier(.22, 1, .36, 1) ' + (open ? '0ms' : '240ms') + ', visibility 0s linear ' + (open ? '650ms' : '0ms') + '; opacity: ' + (open ? 0 : 1) + '; filter: ' + (open ? 'blur(14px)' : 'none') + '; transform: ' + (open ? 'scale(0.975)' : 'none') + '; visibility: ' + (open ? 'hidden' : 'visible') + '; pointer-events: ' + (open ? 'none' : 'auto'),
+      overlayStyle: 'position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; overflow-y: auto; transition: opacity 600ms cubic-bezier(.22, 1, .36, 1) ' + (open ? '220ms' : '0ms') + ', visibility 0s linear ' + (open ? '0ms' : '600ms') + '; opacity: ' + (open ? 1 : 0) + '; visibility: ' + (open ? 'visible' : 'hidden') + '; pointer-events: ' + (open ? 'auto' : 'none'),
+      panelStyle: 'width: 100%; max-width: 63em; margin: 0 auto; box-sizing: border-box; padding: clamp(24px, 6vh, 72px) clamp(16px, 3vw, 40px) 64px; display: flex; flex-direction: column; gap: 40px; transition: transform 700ms cubic-bezier(.22, 1, .36, 1) ' + (open ? '260ms' : '0ms') + ', filter 700ms cubic-bezier(.22, 1, .36, 1) ' + (open ? '260ms' : '0ms') + '; transform: ' + (open ? 'none' : 'translateY(24px)') + '; filter: ' + (open ? 'none' : 'blur(8px)'),
+      skyClass: sky === 'still' ? 'still' : '',
+      skyOptions: ['moving', 'still'].map((k) => ({
+        label: k === 'moving' ? 'Moving' : 'Still',
+        on: k === sky,
+        pick: () => this.setState({ sky: k }),
+        style: 'min-height: 40px; padding: 0 20px; border-radius: 999px; border: 0; font-size: 13px; transition: background-color 300ms ease, color 300ms ease; ' + (k === sky ? 'background: rgba(255, 255, 255, 0.92); color: #050409; font-weight: 600' : 'background: transparent; color: #8F8A9C; font-weight: 500')
+      })),
+      logBg: 'linear-gradient(to bottom, rgba(3, 2, 8, ' + bz.log + '), rgba(3, 2, 8, 0))',
+      gearBg: this.state.settings ? 'rgba(255, 255, 255, 0.14)' : 'rgba(255, 255, 255, 0.06)',
+      toggleSettings: () => this.setState({ settings: !this.state.settings }),
+      blurOptions: Object.keys(BLUR).map((k) => ({
+        label: BLUR[k].label,
+        note: BLUR[k].note,
+        on: k === blur,
+        pick: () => this.setState({ blur: k }),
+        barStyle: 'position: absolute; left: 0; right: 0; top: 0; height: 18%; background: ' + BLUR[k].bg + '; backdrop-filter: blur(' + Math.round(BLUR[k].px / 3) + 'px); -webkit-backdrop-filter: blur(' + Math.round(BLUR[k].px / 3) + 'px); box-shadow: inset 0 -0.5px 0 rgba(255, 255, 255, 0.12)',
+        tileStyle: 'position: absolute; left: 0; top: 18%; bottom: 0; width: 50%; background: ' + BLUR[k].tile.replace(/[\d.]+\)$/, (m) => (parseFloat(m) * 4) + ')') + '; backdrop-filter: blur(' + Math.round(BLUR[k].tpx / 2) + 'px); -webkit-backdrop-filter: blur(' + Math.round(BLUR[k].tpx / 2) + 'px); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.1)',
+        tileStyle2: 'position: absolute; right: 0; top: 18%; bottom: 0; width: 50%; background: ' + BLUR[k].tile.replace(/[\d.]+\)$/, (m) => (parseFloat(m) * 4) + ')') + '; backdrop-filter: blur(' + Math.round(BLUR[k].tpx / 2) + 'px); -webkit-backdrop-filter: blur(' + Math.round(BLUR[k].tpx / 2) + 'px); box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.1)',
+        style: 'display: flex; flex-direction: column; gap: 12px; padding: 10px 10px 14px; border-radius: 16px; border: 0; color: #EFEDF4; transition: box-shadow 400ms ease, background-color 400ms ease; background: ' + (k === blur ? 'rgba(127, 255, 0, 0.10)' : 'rgba(255, 255, 255, 0.03)') + '; box-shadow: inset 0 0 0 ' + (k === blur ? '1px rgba(178, 255, 102, 0.35)' : '0.5px rgba(255, 255, 255, 0.06)'),
+        dot: 'flex-shrink: 0; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; ' + (k === blur ? 'background: #7FFF00' : 'border: 1.5px solid #4A4756')
+      })),
+      showGrid: () => this.setState({ view: 'wall' }),
+      showFocus: () => this.setState({ view: 'focus' }),
+      setWatch: () => this.setState({ mode: 'watch' }),
+      setDrive: () => this.setState({ mode: 'drive' })
+    };
+  }
+}
+</script>
+</body>
+</html>
