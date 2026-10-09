@@ -1,0 +1,32 @@
+// Sample desktops for ?mock. Same shape the daemon's GET /api/desktops returns.
+// Copied from the data() block of docs/agent-desktops-design.dc.html.
+
+export const sampleDesktops = () => [
+  { id: 'ytm', name: 'ytm-refine', display: 'wayland-2', compositor: 'sway headless', res: '1280×800',
+    agent: 'Claude · ytm-player', task: 'Refine the Home grid warm-up', status: 'running',
+    last: 'typed "gg" in foot', ago: '4s', windowTitle: 'foot — ytm',
+    lines: ['Home   Explore   Library', 'Quick picks ──────────────', '1  Midnight City      M83', '2  Intro              The xx'],
+    log: [{ t: '17:42:08', verb: 'type', detail: '"gg" to jump to the top of Quick picks' },
+          { t: '17:42:05', verb: 'capture', detail: 'grim on wayland-2, 1280×800' },
+          { t: '17:41:58', verb: 'key', detail: 'Return on "Midnight City"' },
+          { t: '17:41:51', verb: 'launch', detail: 'foot -e ytm' }] },
+  { id: 'gods', name: 'gods-eye-qa', display: 'wayland-3', compositor: 'sway headless', res: '1440×900',
+    agent: 'Codex · gods-eye-view', task: 'Verify the Map Source tray', status: 'needs',
+    last: 'stopped at a login prompt', ago: '1m', windowTitle: 'Chromium — localhost:5173',
+    lines: ['Map Source', '○ Satellite    ● Terrain', 'ACQUIRING…', 'Sign in to continue'],
+    log: [{ t: '17:41:12', verb: 'wait', detail: 'Login prompt. Asked for a human to sign in' },
+          { t: '17:41:09', verb: 'click', detail: 'Terrain at 412,318' },
+          { t: '17:41:02', verb: 'capture', detail: 'grim on wayland-3, 1440×900' },
+          { t: '17:40:47', verb: 'launch', detail: 'chromium http://localhost:5173' }] },
+  { id: 'hk', name: 'hk-pulse', display: 'wayland-4', compositor: 'labwc headless', res: '1280×800',
+    agent: 'Claude · harness-kit', task: 'Replay the pulse browser workflow', status: 'running',
+    last: 'clicked "Save filter"', ago: '12s', windowTitle: 'Firefox — pulse replay',
+    lines: ['Filters', 'Status   [ Open      ▾ ]', 'Owner    [ me        ▾ ]', '[ Save filter ]'],
+    log: [{ t: '17:42:00', verb: 'click', detail: '"Save filter" at 188,402' },
+          { t: '17:41:55', verb: 'type', detail: 'Owner field: "me"' },
+          { t: '17:41:50', verb: 'capture', detail: 'grim on wayland-4, 1280×800' },
+          { t: '17:41:31', verb: 'launch', detail: 'firefox --new-instance' }] },
+  { id: 'spare', name: 'spare-1', display: 'wayland-5', compositor: 'sway headless', res: '1280×800',
+    agent: 'Unassigned', task: 'Ready for the next agent', status: 'idle',
+    last: 'started', ago: '6m', windowTitle: '', lines: [], log: [] },
+];
