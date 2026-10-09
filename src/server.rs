@@ -6563,6 +6563,8 @@ fn list_process_apps() -> Vec<AppCandidate> {
         .lines()
         .filter_map(parse_process_line)
         .filter(|app| looks_like_desktop_app(&app.name, &app.command))
+        // A nested agent sees only the processes on its own display.
+        .filter(|app| !crate::nested_input::enabled() || crate::nested_input::owns_pid(app.pid))
         .take(50)
         .collect()
 }

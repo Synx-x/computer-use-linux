@@ -74,6 +74,34 @@ pub(crate) fn isolate_environment() {
     std::env::set_var("XDG_SESSION_TYPE", "wayland");
 }
 
+/// True when process `pid` runs on this nested session: its
+/// `WAYLAND_DISPLAY`, and `SWAYSOCK` when this process has one, match ours.
+/// AT-SPI shares one bus across the host and every nested desktop, so this
+/// check is what keeps an accessibility action off host apps.
+pub(crate) fn owns_pid(pid: u32) -> bool {
+    let Ok(environ) = std::fs::read(format!("/proc/{pid}/environ")) else {
+        return false;
+    };
+    let lookup = |key: &str| {
+        let prefix = format!("{key}=");
+        environ
+            .split(|byte| *byte == 0)
+            .find_map(|entry| entry.strip_prefix(prefix.as_bytes()))
+            .map(|value| String::from_utf8_lossy(value).into_owned())
+    };
+    let ours = |key: &str| std::env::var(key).ok().filter(|value| !value.is_empty());
+    let Some(display) = ours("WAYLAND_DISPLAY") else {
+        return false;
+    };
+    if lookup("WAYLAND_DISPLAY").as_deref() != Some(display.as_str()) {
+        return false;
+    }
+    match ours("SWAYSOCK") {
+        Some(socket) => lookup("SWAYSOCK").as_deref() == Some(socket.as_str()),
+        None => true,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ScrollDirection {
     Up,

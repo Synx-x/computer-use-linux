@@ -6,6 +6,7 @@ mod atspi_tree_impl;
 mod cli;
 mod command_runner;
 mod cosmic_helper;
+pub mod desktops;
 #[path = "diagnostics.rs"]
 mod diagnostics_impl;
 mod gnome_extension;
