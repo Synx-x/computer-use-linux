@@ -447,7 +447,9 @@ function syncKeyboardLock() {
 }
 document.addEventListener('fullscreenchange', () => {
   syncKeyboardLock();
-  $('#b-fs')?.setAttribute('aria-pressed', String(Boolean(document.fullscreenElement)));
+  const on = Boolean(document.fullscreenElement);
+  $('#b-fs')?.setAttribute('aria-pressed', String(on));
+  $('#b-fs')?.setAttribute('aria-label', on ? 'Exit fullscreen' : 'Fullscreen live view');
 });
 
 const takeOver = (id) => guard(async () => { state.mode = 'drive'; await api.takeover(id); await load(); });

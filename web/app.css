@@ -259,7 +259,8 @@ dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* Take over tools: the key passthrough lock and fullscreen, over the live view's top right. */
 .lockbar { position: absolute; z-index: 3; top: calc(var(--head-h, 72px) + 14px); right: 22px; display: none; align-items: center; gap: 6px; }
-.stage.driving .lockbar { display: flex; }
+.stage .lockbar { display: flex; }
+.stage:not(.driving) #b-lock { display: none; }
 .lk { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border: 0; border-radius: 999px; font-size: 13px; font-weight: 600; color: var(--ink); background: rgba(3, 2, 8, .55); backdrop-filter: blur(12px) saturate(130%); -webkit-backdrop-filter: blur(12px) saturate(130%); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .14), 0 10px 30px -14px rgba(0, 0, 0, .9); transition: background-color 250ms ease, color 250ms ease, box-shadow 250ms ease; }
 .lk:hover { background: rgba(3, 2, 8, .75); }
 .lk.fs { width: 40px; padding: 0; justify-content: center; }
@@ -269,3 +270,17 @@ dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
 .stage.locked { box-shadow: inset 0 0 0 3px var(--amber), inset 0 0 40px -10px rgba(242, 181, 68, .35); }
 .stage:fullscreen { background: var(--void); }
 @media (max-width: 900px) { .lk .hint { display: none; } }
+
+/* Fullscreen is the live view alone. Only the lock and fullscreen buttons float over it,
+   faded until the pointer or keyboard reaches them. */
+.stage:fullscreen .head, .stage:fullscreen .empty-note { display: none; }
+.stage:fullscreen .vnc { inset: 0; animation: none; }
+.stage:fullscreen .vnc canvas { border-radius: 0; box-shadow: none; }
+.stage:fullscreen.empty .vnc { opacity: 1; }
+.stage:fullscreen .lockbar { display: flex; top: 14px; right: 14px; padding: 10px; margin: -10px; opacity: .22; transform: translateY(-3px); transition: opacity 280ms var(--ease), transform 280ms var(--ease); }
+.stage:fullscreen .lockbar:hover, .stage:fullscreen .lockbar:focus-within { opacity: 1; transform: none; }
+.stage:fullscreen.locked .lockbar { opacity: .45; }
+.stage:fullscreen.locked .lockbar:hover, .stage:fullscreen.locked .lockbar:focus-within { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .stage:fullscreen .lockbar { transition: none; } }
+/* Amber means keys are locked, so the fullscreen button keeps its neutral glass when on. */
+.lk.fs[aria-pressed="true"] { color: var(--ink); background: rgba(3, 2, 8, .55); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .14), 0 10px 30px -14px rgba(0, 0, 0, .9); }
