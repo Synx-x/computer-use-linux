@@ -414,8 +414,19 @@ function releaseLock(reason) {
   if (!lockedId || MOCK) return;
   const id = lockedId;
   lockedId = null;
-  if (reason === 'pagehide') navigator.sendBeacon?.(`/api/desktops/${encodeURIComponent(id)}/unlock`);
-  else api.unlock(id).then(load).catch(() => {});
+  autoLocked = false;
+  if (reason === 'pagehide') navigator.sendBeacon?.(`/api/desktops/${encodeURIComponent(id)}/unlock?reason=pagehide`);
+  else api.unlock(id, reason).then(load).catch(() => {});
+}
+// Entering or leaving fullscreen can fire a blur without any real loss of focus,
+// so a blur releases the lock only when focus is still gone a moment later.
+let fsChangedAt = 0;
+function onBlur() {
+  if (!lockedId) return;
+  setTimeout(() => {
+    if (Date.now() - fsChangedAt < 1500) return;
+    if (!document.hasFocus()) releaseLock('blur');
+  }, 400);
 }
 let rctl = { down: false, other: false };
 addEventListener('keydown', (e) => {
@@ -428,7 +439,7 @@ addEventListener('keyup', (e) => {
   rctl = { down: false, other: false };
   if (tap && lockedId) releaseLock('rctrl');
 }, true);
-addEventListener('blur', () => releaseLock('blur'));
+addEventListener('blur', onBlur);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releaseLock('hidden'); });
 addEventListener('pagehide', () => releaseLock('pagehide'));
 
@@ -439,6 +450,28 @@ function toggleFullscreen() {
   if (document.fullscreenElement) document.exitFullscreen?.();
   else stage?.requestFullscreen?.().catch((e) => toast(`Fullscreen failed: ${e.message}`));
 }
+// Fullscreen while driving is computer-use mode: the keys lock to the desktop, so Super
+// and Alt combos reach it instead of Hyprland. A lock fullscreen set, fullscreen clears.
+let autoLocked = false;
+async function fullscreenLock(on) {
+  const f = focused();
+  if (MOCK || !f || !driving(f)) return;
+  try {
+    if (on && !f.locked) { await api.lock(f.id); autoLocked = true; await load(); $('#stage canvas')?.focus(); }
+    else if (!on && autoLocked && lockedId) { autoLocked = false; releaseLock('fullscreen-exit'); }
+  } catch (e) { toast(e.message); }
+}
+// The desktop may not fill a fullscreen screen, so the pointer can leave it through
+// the letterbox. Moves there go to the canvas, which pins them to the desktop's edge,
+// so edge panels and hot corners still trigger.
+function forwardEdgePointer(e) {
+  const canvas = $('#stage canvas');
+  if (!canvas || e.target === canvas || !e.isTrusted) return;
+  canvas.dispatchEvent(new MouseEvent(e.type, { clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons, bubbles: true, cancelable: true }));
+}
+for (const type of ['mousemove', 'mousedown', 'mouseup']) {
+  document.addEventListener(type, (e) => { if (document.fullscreenElement && e.target.closest?.('.vnc')) forwardEdgePointer(e); }, true);
+}
 function syncKeyboardLock() {
   const kb = navigator.keyboard;
   if (!kb?.lock) return;
@@ -446,6 +479,8 @@ function syncKeyboardLock() {
   else kb.unlock?.();
 }
 document.addEventListener('fullscreenchange', () => {
+  fsChangedAt = Date.now();
+  fullscreenLock(Boolean(document.fullscreenElement));
   syncKeyboardLock();
   const on = Boolean(document.fullscreenElement);
   $('#b-fs')?.setAttribute('aria-pressed', String(on));
