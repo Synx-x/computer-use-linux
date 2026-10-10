@@ -181,6 +181,59 @@ function teardownVnc() {
   rfbHost = null;
 }
 
+// The divider between the live view and the side panel. Drag it, or focus it and use the
+// arrow keys. A double-click puts it back. The width survives reloads.
+const RAIL_MIN = 260;
+const clampRail = (w) => Math.round(Math.max(RAIL_MIN, Math.min(w, Math.max(RAIL_MIN, innerWidth * 0.6))));
+function makeDivider(sec) {
+  const d = el('div', 'divider');
+  d.setAttribute('role', 'separator');
+  d.setAttribute('aria-orientation', 'vertical');
+  d.setAttribute('aria-label', 'Resize the side panel');
+  d.tabIndex = 0;
+  const set = (w) => { w = clampRail(w); sec.style.setProperty('--rail-w', w + 'px'); d.setAttribute('aria-valuenow', String(w)); return w; };
+  const save = (w) => store.set('ad.railw', w);
+  const now = () => parseFloat(getComputedStyle(sec).getPropertyValue('--rail-w')) || 380;
+  d.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    d.setPointerCapture(e.pointerId);
+    sec.classList.add('resizing');
+    const right = sec.getBoundingClientRect().right;
+    const move = (m) => set(right - m.clientX - d.offsetWidth / 2);
+    const up = () => {
+      d.removeEventListener('pointermove', move);
+      sec.classList.remove('resizing');
+      save(now());
+    };
+    d.addEventListener('pointermove', move);
+    d.addEventListener('pointerup', up, { once: true });
+    d.addEventListener('pointercancel', up, { once: true });
+  });
+  d.addEventListener('keydown', (e) => {
+    const step = e.shiftKey ? 80 : 24;
+    if (e.key === 'ArrowLeft') save(set(now() + step));
+    else if (e.key === 'ArrowRight') save(set(now() - step));
+    else return;
+    e.preventDefault();
+  });
+  d.addEventListener('dblclick', () => save(set(380)));
+  return d;
+}
+
+// Each log verb belongs to a kind, and the kind sets its chip colour.
+const VERB_KIND = { click: 'act', scroll: 'act', drag: 'act', type_text: 'act', press_key: 'act', act: 'act', type: 'act', key: 'act',
+  screenshot: 'look', capture: 'look', list_windows: 'look', get_app_state: 'look', zoom: 'look', focused_window: 'look',
+  say: 'say', launch: 'life', start: 'life', stop: 'life', takeover: 'warn', handback: 'life', wait: 'warn', needs: 'warn', blocked: 'warn' };
+function tidyDetail(d) {
+  const s = String(d ?? '').trim();
+  if (!s || s === '{}' || s === '[]') return '';
+  if (s.startsWith('{')) {
+    try { return Object.entries(JSON.parse(s)).map(([k, v]) => `${k.replace(/_/g, ' ')} ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · '); } catch { /* not JSON, keep it */ }
+  }
+  return s;
+}
+let logKey = '';
+
 function buildFocus() {
   const main = $('#main');
   main.replaceChildren();
@@ -195,40 +248,40 @@ function buildFocus() {
   const head = el('div', 'head');
   // The live view starts below the header, however tall a long task makes it.
   new ResizeObserver(() => stage.style.setProperty('--head-h', head.offsetHeight + 'px')).observe(head);
-  const info = el('div');
+  const info = el('div', 'info');
   const sub = el('div', 'sub'); sub.id = 'f-sub';
   const h1 = el('h1'); h1.id = 'f-name';
   const stt = el('div', 'state'); stt.id = 'f-state';
-  info.append(sub, h1, stt);
+  const mode = el('span', 'mode'); mode.id = 'f-mode';
+  info.append(h1, stt, sub, mode);
   const seg = el('div', 'seg glass');
   seg.setAttribute('role', 'group');
   seg.setAttribute('aria-label', 'Control');
   const watch = btn('', 'Watch', () => handBack(f.id)); watch.id = 'b-watch';
   const drive = btn('drive', 'Take over', () => takeOver(f.id)); drive.id = 'b-drive';
   seg.append(watch, drive);
-  head.append(info, seg);
+  const acts = el('div', 'acts');
+  const assign = btn('pill', 'Assign agent', () => assignDialog(f)); assign.id = 'b-assign';
+  const shot = btn('pill', 'Screenshot', () => saveShot(f)); shot.id = 'b-shot';
+  const stop = btn('pill danger', 'Stop', () => stopDesktop(f)); stop.id = 'b-stop';
+  acts.append(assign, shot, stop, seg);
+  head.append(info, acts);
 
   const banner = el('div', 'banner');
   banner.id = 'banner';
   banner.setAttribute('role', 'status');
   banner.append(el('span', '', "You're driving. The agent is paused."), btn('', 'Hand back', () => handBack(f.id)));
 
-  const foot = el('div', 'foot');
-  const row = el('div', 'row');
-  const shot = btn('pill', 'Save screenshot', () => saveShot(f)); shot.id = 'b-shot';
-  const assign = btn('pill', 'Assign agent', () => assignDialog(f)); assign.id = 'b-assign';
-  const stop = btn('pill danger', 'Stop desktop', () => stopDesktop(f)); stop.id = 'b-stop';
-  row.append(assign, shot, stop);
-  const mode = el('span', 'mode'); mode.id = 'f-mode';
-  foot.append(row, mode);
-  stage.append(head, banner, foot);
+  stage.append(head, banner);
 
   const rail = el('aside', 'rail');
   rail.setAttribute('aria-label', 'Other desktops and agent actions');
   state.desktops.filter((d) => d.id !== f.id).forEach((d, i) => rail.append(makeTile(d, 'rail', i)));
   const log = el('div', 'log'); log.id = 'log';
+  log.setAttribute('aria-live', 'polite');
   rail.append(log);
-  sec.append(stage, rail);
+  sec.style.setProperty('--rail-w', clampRail(store.get('ad.railw', 380)) + 'px');
+  sec.append(stage, makeDivider(sec), rail);
   main.append(sec);
   surfaceKey = '';
 }
@@ -275,14 +328,27 @@ function updateStage(f) {
 
   // Action log. Falls back to the single last action when the daemon sends no log.
   const log = $('#log');
-  log.replaceChildren(el('h2', '', `AGENT ACTIONS · ${f.agent}`));
   const entries = f.log.length ? f.log : f.last ? [{ t: '', verb: 'last', detail: `${f.last}${f.ago ? ', ' + f.ago + ' ago' : ''}` }] : [];
-  if (!entries.length) log.append(el('div', 'none', 'Nothing yet.'));
+  // Rebuild only when the log changed, so a reader's scroll position holds between polls.
+  const key = f.id + '|' + f.agent + '|' + JSON.stringify(entries);
+  if (key === logKey && log.childElementCount) return;
+  logKey = key;
+  const h = el('div', 'lh');
+  h.append(el('h2', '', 'Agent actions'), el('span', 'who', f.agent));
+  log.replaceChildren(h);
+  if (!entries.length) { log.append(el('div', 'none', 'Nothing yet. Actions show here as the agent works.')); return; }
+  const list = el('ol', 'entries');
   for (const e of entries) {
-    const r = el('div', 'e');
-    r.append(el('span', 't', e.t), el('span', 'v', e.verb), el('span', 'd', e.detail));
-    log.append(r);
+    const kind = VERB_KIND[e.verb] || 'other';
+    const r = el('li', `e ${kind}`);
+    const top = el('div', 'et');
+    top.append(el('span', 'v', e.verb === 'say' ? 'said' : e.verb.replace(/_/g, ' ')), el('span', 't', e.t));
+    r.append(top);
+    const d = tidyDetail(e.detail);
+    if (d) r.append(el('div', 'd', d));
+    list.append(r);
   }
+  log.append(list);
 }
 
 async function connectVnc(f, stage) {
