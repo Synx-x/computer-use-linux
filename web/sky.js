@@ -172,6 +172,9 @@ class SkyLogic {
   if (!skyEl) return;
   var cams = { far: skyEl.querySelector('.cam-far'), mid: skyEl.querySelector('.cam-mid'), near: skyEl.querySelector('.cam-near') };
   var slots = [].slice.call(skyEl.querySelectorAll('.ev')), his = [].slice.call(skyEl.querySelectorAll('.hi'));
+  /* The Original look's nebula wrapper takes the photo sky's mid-layer moves. Its far
+     camera is aimed separately, in the Sky look block below. */
+  var ocamMid = skyEl.querySelector('.o-cam-mid');
   /* Write an attribute only when its value changed. */
   function set(el, prop, v) { if (el[prop] !== v) el[prop] = v; }
   function css(el, v) { if (el.__css !== v) { el.__css = v; el.style.cssText = v; } }
@@ -179,6 +182,7 @@ class SkyLogic {
     var v = comp.skyRenderVals();
     set(skyEl, 'className', ('sky ' + v.skyClass).trim());
     css(cams.far, v.skyCamFar); css(cams.mid, v.skyCamMid); css(cams.near, v.skyCamNear);
+    if (ocamMid) css(ocamMid, v.skyCamMid);
     v.skySlots.forEach(function (s, i) { set(slots[i], 'className', s.cls); css(slots[i], s.outer); css(slots[i].firstChild, s.inner); });
     his.forEach(function (h, i) { set(h, 'className', ('hi ' + v['skyHi' + i]).trim()); });
   }
@@ -207,6 +211,67 @@ class SkyLogic {
   var saved = null;
   try { saved = localStorage.getItem('ad.skyLook'); } catch (e) {}
   apply(saved);
+
+  /* Original look camera. Each page change turns the drawn sky about its pole (85%,
+     -100px) so a constellation the last moves did not show swings into view, with a
+     light zoom, then lights it and any others now on screen. Aiming from the live
+     layout keeps every move on a constellation, however far the sphere has turned. */
+  var ofar = skyEl.querySelector('.o-cam-far'), ocam = { r: 0, s: 1 }, shownAt = new Map(), moves = 0, flashTok = 0;
+  function inView(x, y, w, h) { return x > w * 0.1 && x < w * 0.9 && y > h * 0.14 && y < h * 0.86; }
+  function aimOriginal(kind) {
+    if (!ofar || skyEl.dataset.look !== 'original') return;
+    var w = innerWidth, h = innerHeight, px = 0.85 * w, py = -100;
+    var groups = [].slice.call(skyEl.querySelectorAll('.sky-orig .cst'));
+    var rad = Math.PI / 180, cr = Math.cos(-ocam.r * rad), sr = Math.sin(-ocam.r * rad);
+    // Each group's position with the camera undone: offset from the pole, unscaled, unturned.
+    var base = groups.map(function (g) {
+      var b = g.getBoundingClientRect(), dx = (b.left + b.width / 2 - px) / ocam.s, dy = (b.top + b.height / 2 - py) / ocam.s;
+      return { g: g, x: dx * cr - dy * sr, y: dx * sr + dy * cr };
+    });
+    var s1 = kind === 'zoom' ? 1.15 : kind === 'warp' ? 1.1 : kind === 'expand' ? 1 : [1, 1.06, 1.12][Math.floor(Math.random() * 3)];
+    // Aim at the constellation shown least recently, so page changes cycle through them all.
+    var order = base.slice().sort(function (p, q) { return (shownAt.get(p.g) || -1) - (shownAt.get(q.g) || -1) || Math.random() - 0.5; });
+    for (var tries = 0; tries < order.length; tries++) {
+      var o = order[tries], d = Math.hypot(o.x, o.y) * s1, a0 = Math.atan2(o.y, o.x) / rad;
+      // Screen angles from the pole where a point at distance d sits inside the frame.
+      var ok = [];
+      for (var t = 90; t <= 180; t += 3) { if (inView(px + d * Math.cos(t * rad), py + d * Math.sin(t * rad), w, h)) ok.push(t); }
+      if (!ok.length) continue;
+      var target = ok[Math.floor(Math.random() * ok.length)], delta = ((target - a0 - ocam.r) % 360 + 540) % 360 - 180;
+      if (Math.abs(delta) < 14) continue;
+      var r1 = ocam.r + delta, ms = kind === 'warp' ? 2200 : 1800;
+      ofar.style.transition = 'transform ' + ms + 'ms cubic-bezier(.65,0,.25,1)';
+      ofar.style.transform = 'rotate(' + r1.toFixed(2) + 'deg) scale(' + s1 + ')';
+      ocam = { r: r1, s: s1 };
+      // Predict where every group lands, and light the chosen one plus up to two more.
+      var c1 = Math.cos(r1 * rad), s1n = Math.sin(r1 * rad), lit = [o.g];
+      base.forEach(function (q) {
+        if (q === o || lit.length >= 3) return;
+        var x = px + s1 * (q.x * c1 - q.y * s1n), y = py + s1 * (q.x * s1n + q.y * c1);
+        if (inView(x, y, w, h)) lit.push(q.g);
+      });
+      moves++;
+      lit.forEach(function (g) { shownAt.set(g, moves); });
+      setTimeout(function () { flashGroups(groups, lit); }, ms * 0.55);
+      return;
+    }
+  }
+  function flashGroups(groups, lit) {
+    if (skyEl.dataset.look !== 'original') return;
+    var tok = ++flashTok;
+    groups.forEach(function (g) { g.classList.remove('o-fl'); });
+    void skyEl.offsetWidth;
+    lit.forEach(function (g, k) { g.style.setProperty('--fd', (k * 0.24) + 's'); g.classList.add('o-fl'); });
+    setTimeout(function () { if (tok === flashTok) lit.forEach(function (g) { g.classList.remove('o-fl'); }); }, 4800);
+  }
+  if (window.sky && window.sky.comp) {
+    var move = window.sky.transition, comp = window.sky.comp;
+    window.sky.transition = function (k) {
+      var was = comp.sk && comp.sk.busy;
+      move(k);
+      if (comp.sk && !was && comp.sk.busy) aimOriginal(k);
+    };
+  }
   if (opts) opts.addEventListener('click', function (e) {
     var b = e.target.closest('button[data-k]');
     if (!b) return;

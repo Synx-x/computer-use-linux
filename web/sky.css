@@ -87,3 +87,16 @@
 .sky-orig .o-shoot{top:16%;left:-14%;width:180px;height:1px;background:linear-gradient(90deg,transparent,rgba(233,255,208,.95));border-radius:1px;opacity:0;animation:o-shoot 19s cubic-bezier(.3,.1,.4,1) 5s infinite}
 @keyframes o-shoot{0%{opacity:0;transform:rotate(-14deg) translateX(0)}1.5%{opacity:.9}7%{opacity:0;transform:rotate(-14deg) translateX(80vw)}100%{opacity:0;transform:rotate(-14deg) translateX(80vw)}}
 @media (prefers-reduced-motion:reduce){.sky-orig *{animation:none!important}.sky-orig .o-shoot{display:none}.sky-orig .o-chart line{stroke-opacity:.3}}
+/* Original look camera: the same page-change moves as the photo sky. The far camera
+   pivots on the original sphere's pole, so turns bring other constellations round and
+   zooms never reach the sphere's edge. A flash lights the constellations a move revealed. */
+.sky-orig>.o-cam{inset:0;will-change:transform}
+.sky-orig .o-sphere,.sky-orig .o-neb{position:absolute}
+.sky-orig>.o-cam-far{transform-origin:85% -100px}
+.sky-orig>.o-cam-mid{transform-origin:50% 50%}
+.sky-orig .cst.o-fl line{animation:o-fl-ln 3.8s ease-in-out var(--fd,0s) both}
+.sky-orig .cst.o-fl text{animation:o-fl-tx 3.8s ease-in-out var(--fd,0s) both}
+.sky-orig .cst.o-fl .halo{animation:o-fl-hl 3.8s ease-in-out var(--fd,0s) both}
+@keyframes o-fl-ln{0%,100%{stroke-opacity:.16}22%,70%{stroke-opacity:.8}}
+@keyframes o-fl-tx{0%,100%{opacity:0}22%,70%{opacity:.9}}
+@keyframes o-fl-hl{0%,100%{opacity:.5}22%,70%{opacity:1}}
