@@ -190,8 +190,61 @@ fn agent_command(desktop: &Desktop, prompt: &str, mcp_config: &Path, cwd: &Path)
     for (key, value) in desktop.nested_env() {
         command.push_str(&format!(" {key}={}", shell_quote(&value)));
     }
+    if let Some(sandbox) = sandbox_prefix(desktop, cwd) {
+        command.push(' ');
+        command.push_str(&sandbox);
+    }
     command.push_str(&format!(" {program} {}", shell_quote(prompt)));
     command
+}
+
+/// The bubblewrap prefix that confines the agent, or None when the sandbox is
+/// off (`CUL_DESKTOPS_SANDBOX=off`) or `bwrap` is missing.
+///
+/// The agent runs with bypass permissions, so its shell is the real risk, not its
+/// MCP tools. The sandbox mounts the filesystem read-only except the agent's own
+/// folder, `~/.claude` and a scratch cache. It replaces `/dev`, `/tmp` and the
+/// runtime directory, so the host Wayland and Hyprland sockets, the session bus,
+/// the ydotool socket and `/dev/uinput` are gone. Only this desktop's Wayland and
+/// sway sockets come back. The herdr socket is hidden too, because it can run
+/// commands in any pane.
+fn sandbox_prefix(desktop: &Desktop, cwd: &Path) -> Option<String> {
+    if std::env::var("CUL_DESKTOPS_SANDBOX").is_ok_and(|value| value.trim() == "off") {
+        return None;
+    }
+    let bwrap = which("bwrap")?;
+    let home = std::env::var("HOME").ok()?;
+    let runtime = std::env::var("XDG_RUNTIME_DIR").ok()?;
+    let wayland = format!("{runtime}/{}", desktop.display);
+    let q = |path: &str| shell_quote(path);
+    let mut args = vec![
+        "--ro-bind / /".to_string(),
+        "--dev /dev".to_string(),
+        "--proc /proc".to_string(),
+        "--tmpfs /tmp".to_string(),
+        format!("--tmpfs {}", q(&runtime)),
+        format!("--bind {} {}", q(&wayland), q(&wayland)),
+        format!("--bind {d} {d}", d = q(&desktop.dir.to_string_lossy())),
+        format!("--bind {d} {d}", d = q(&cwd.to_string_lossy())),
+        format!("--tmpfs {}", q(&format!("{home}/.cache"))),
+        format!("--tmpfs {}", q(&format!("{home}/.config/herdr"))),
+        "--unshare-pid".to_string(),
+        "--die-with-parent".to_string(),
+    ];
+    for path in [format!("{home}/.claude"), format!("{home}/.claude.json")] {
+        if Path::new(&path).exists() {
+            args.push(format!("--bind {p} {p}", p = q(&path)));
+        }
+    }
+    Some(format!("{} {} --", q(&bwrap.to_string_lossy()), args.join(" ")))
+}
+
+fn which(program: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH")?
+        .to_str()?
+        .split(':')
+        .map(|dir| Path::new(dir).join(program))
+        .find(|path| path.is_file())
 }
 
 /// Answer Claude's folder-trust prompt, then wait for the session banner.
