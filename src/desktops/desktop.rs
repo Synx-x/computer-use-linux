@@ -93,13 +93,42 @@ fn pick_render_node(nodes: &[(String, Option<String>)]) -> Option<String> {
         .map(|(name, _)| name.clone())
 }
 
-/// The sway `exec` line that starts the desktop shell, or nothing.
-fn shell_exec_line() -> String {
+/// The sway `exec` line that starts the desktop shell, or nothing. With a
+/// Hyprland IPC stand-in, the shell waits up to 5 s for its socket first, so it
+/// finds the desktop's monitor on start.
+fn shell_exec_line(ipc_socket: Option<&Path>) -> String {
     let shell = std::env::var("CUL_DESKTOP_SHELL").unwrap_or_else(|_| DEFAULT_SHELL.to_string());
     let Some(program) = shell.split_whitespace().next() else {
         return String::new();
     };
-    format!("exec sh -c 'command -v {program} >/dev/null && exec {shell}'\n")
+    let wait = ipc_socket
+        .map(|socket| {
+            format!(
+                "for i in $(seq 50); do [ -S {} ] && break; sleep 0.1; done; ",
+                socket.display()
+            )
+        })
+        .unwrap_or_default();
+    format!("exec sh -c '{wait}command -v {program} >/dev/null && exec {shell}'\n")
+}
+
+/// The Hyprland instance signature a desktop's apps see, unique per daemon and
+/// desktop, such as `agent-desktops-7420-d1`.
+fn hyprland_signature(dir: &Path) -> String {
+    let name = |p: Option<&Path>| {
+        p.and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    };
+    format!("{}-{}", name(dir.parent()), name(Some(dir)))
+}
+
+/// Where the desktop's Hyprland IPC stand-in puts its sockets.
+fn hyprland_ipc_dir(dir: &Path) -> PathBuf {
+    let base = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    base.join("hypr").join(hyprland_signature(dir))
 }
 
 /// The root of every desktop's runtime directory for the daemon on `port`.
@@ -265,18 +294,35 @@ impl Desktop {
         std::fs::create_dir_all(&dir).context("create desktop runtime dir")?;
         let sway_socket = dir.join("sway.sock");
         let ready = dir.join("ready");
+        // The binds write the shims, so they come first. When the hyprctl shim is
+        // there, it also serves a Hyprland IPC stand-in for the desktop's apps.
+        let binds = super::binds::sway_binds(&dir);
+        let hyprctl = dir.join("bin/hyprctl");
+        let ipc_dir = hyprland_ipc_dir(&dir);
+        let _ = std::fs::remove_dir_all(&ipc_dir);
+        let ipc = hyprctl.is_file().then(|| ipc_dir.join(".socket.sock"));
+        let ipc_line = ipc
+            .as_ref()
+            .map(|_| {
+                format!(
+                    "exec {} --serve-ipc {}\n",
+                    hyprctl.display(),
+                    hyprland_signature(&dir)
+                )
+            })
+            .unwrap_or_default();
         let config = format!(
             "output {OUTPUT} resolution {width}x{height} position 0 0\n\
              swaybg_command -\n\
              xwayland disable\n\
              exec sh -c 'printf %s \"$WAYLAND_DISPLAY\" > {ready}'\n\
+             {ipc_line}\
              {shell}\
              {look}\
              {binds}",
             ready = ready.display(),
-            shell = shell_exec_line(),
+            shell = shell_exec_line(ipc.as_deref()),
             look = super::binds::sway_look(),
-            binds = super::binds::sway_binds(&dir)
         );
         std::fs::write(dir.join("config"), config).context("write sway config")?;
 
@@ -295,6 +341,9 @@ impl Desktop {
             .env("SWAYSOCK", &sway_socket);
         if let Some(device) = render_device() {
             sway.env("WLR_RENDER_DRM_DEVICE", device);
+        }
+        if ipc.is_some() {
+            sway.env("HYPRLAND_INSTANCE_SIGNATURE", hyprland_signature(&dir));
         }
         let mut sway = spawn_group(&mut sway, &dir.join("sway.log")).context("start sway")?;
 
@@ -484,6 +533,7 @@ impl Desktop {
                 }
             }
         }
+        let _ = std::fs::remove_dir_all(hyprland_ipc_dir(&self.dir));
         let _ = std::fs::remove_dir_all(&self.dir);
     }
 }
@@ -524,6 +574,7 @@ pub fn clean_orphans(root: &Path) -> Vec<String> {
                 cleaned.push(format!("{name} {pid}"));
             }
         }
+        let _ = std::fs::remove_dir_all(hyprland_ipc_dir(&dir));
         let _ = std::fs::remove_dir_all(&dir);
     }
     cleaned
@@ -534,6 +585,13 @@ mod tests {
 
     fn node(name: &str, driver: Option<&str>) -> (String, Option<String>) {
         (name.to_string(), driver.map(str::to_string))
+    }
+
+    #[test]
+    fn hyprland_signature_names_daemon_and_desktop() {
+        let dir = Path::new("/run/user/1000/agent-desktops-7420/d3");
+        assert_eq!(hyprland_signature(dir), "agent-desktops-7420-d3");
+        assert!(hyprland_ipc_dir(dir).ends_with("hypr/agent-desktops-7420-d3"));
     }
 
     #[test]

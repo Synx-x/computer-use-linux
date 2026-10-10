@@ -6,11 +6,15 @@
 //! and floating translate directly. An exec bind runs on the desktop. Its command
 //! goes into a script file, so no shell quoting passes through the sway config.
 //!
-//! Some commands reach the host, not the desktop, so the translation skips them.
-//! The uwsm launcher is one: it starts apps in the host session, so its
-//! `uwsm-app --` prefix is dropped and the command runs directly. The Caelestia
-//! CLI, `hyprctl`, `hyprshade`, session controls and process killers such as
-//! `pkill` are skipped, since those would act on the host.
+//! Every bind runs with the desktop's `bin/` first on PATH. That directory holds
+//! shims for the host tools binds and the user's scripts call. `hyprctl` turns
+//! dispatches and queries into sway IPC. `caelestia shell` reaches the desktop's
+//! own Caelestia shell by pid, never the host's. `pkill` and `killall` only signal
+//! processes started in this desktop. `uwsm-app` runs the app directly, and
+//! `hyprshade` does nothing. Hyprland dispatchers with no direct sway command go
+//! through the same `hyprctl` shim, and submaps become sway modes. Only session
+//! power commands, such as `systemctl` and `loginctl`, are still skipped, since
+//! those would act on the host.
 //!
 //! `CUL_DESKTOP_BINDS=default` uses a small built-in set, and `off` writes none.
 
@@ -18,21 +22,43 @@ use serde_json::Value;
 use std::fmt::Write as _;
 use std::path::Path;
 
-/// Commands that act on the host session, not the desktop.
-const HOST_ONLY: &[&str] = &[
-    "hyprctl",
-    "hyprshade",
-    "hyprlock",
-    "caelestia",
-    "uwsm ",
-    "systemctl",
-    "loginctl",
-    "dpms",
-    "wlogout",
-    "notify-send",
-    "pkill",
-    "killall",
+/// Commands that act on the host session and have no desktop meaning.
+const HOST_ONLY: &[&str] = &["uwsm ", "systemctl", "loginctl", "wlogout"];
+
+/// The shims written to each desktop's `bin/`, as (file name, contents).
+const SHIMS: &[(&str, &str)] = &[
+    ("hyprctl", include_str!("shims/hyprctl.py")),
+    ("caelestia", include_str!("shims/caelestia.sh")),
+    ("pkill", include_str!("shims/pkill.sh")),
+    ("killall", include_str!("shims/pkill.sh")),
+    ("uwsm-app", include_str!("shims/uwsm-app.sh")),
+    ("hyprshade", include_str!("shims/nop.sh")),
+    ("hyprlock", "#!/bin/sh\nexec caelestia shell lock lock\n"),
 ];
+
+/// Write the shims to `dir/bin`, or None when the directory cannot be written.
+fn write_shims(dir: &Path) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).ok()?;
+    let host = std::env::var("HYPRLAND_INSTANCE_SIGNATURE").unwrap_or_default();
+    for (name, body) in SHIMS {
+        let path = bin.join(name);
+        let body = if host.is_empty() {
+            body.to_string()
+        } else {
+            body.replace("__HOST_SIGNATURE__", &host)
+        };
+        std::fs::write(&path, body).ok()?;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).ok()?;
+    }
+    Some(bin)
+}
+
+/// Quote a string for sh.
+fn shell_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', "'\\''"))
+}
 
 /// The sway config lines that give the desktop the host's window look: gaps,
 /// border width and colours, and rounding when the sway is SwayFX. Falls back to
@@ -170,16 +196,18 @@ fn hyprland_binds(dir: &Path) -> Option<String> {
         return None;
     }
     let binds: Vec<Value> = serde_json::from_slice(&output.stdout).ok()?;
-    let scripts = dir.join("binds");
-    let mut out = String::from("floating_modifier Mod4 normal\n");
+    let bin = write_shims(dir)?;
+    Some(translate_binds(&binds, &dir.join("binds"), &bin))
+}
+
+/// The sway config for a list of Hyprland binds. Exec scripts go in `scripts`.
+fn translate_binds(binds: &[Value], scripts: &Path, bin: &Path) -> String {
+    let mut modes: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    let mut entered: std::collections::BTreeMap<String, String> = Default::default();
     let mut seen = std::collections::HashSet::new();
     let mut count = 0;
-    for bind in &binds {
-        if bind["submap"]
-            .as_str()
-            .is_some_and(|submap| !submap.is_empty())
-            || bind["mouse"] == true
-        {
+    for bind in binds {
+        if bind["mouse"] == true {
             continue;
         }
         let Some(keys) = sway_keys(
@@ -188,24 +216,81 @@ fn hyprland_binds(dir: &Path) -> Option<String> {
         ) else {
             continue;
         };
-        if !seen.insert(keys.clone()) {
+        let submap = bind["submap"].as_str().unwrap_or("").to_string();
+        if !seen.insert((submap.clone(), keys.clone())) {
             continue;
         }
+        let dispatcher = bind["dispatcher"].as_str().unwrap_or("");
         let arg = bind["arg"].as_str().unwrap_or("").trim();
-        let command = match bind["dispatcher"].as_str().unwrap_or("") {
-            "exec" => match exec_script(&scripts, count, arg) {
+        // Remember which key enters a submap, so its mode always has a way out.
+        let enters = if dispatcher == "submap" {
+            Some(arg.to_string())
+        } else {
+            arg.split("submap ").nth(1).map(|rest| {
+                rest.split(|c: char| c == ';' || c == '"' || c.is_whitespace())
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            })
+        };
+        if let Some(name) = enters.filter(|n| !n.is_empty() && n != "reset") {
+            entered.entry(name).or_insert_with(|| keys.clone());
+        }
+        let command = if dispatcher == "exec" {
+            match exec_script(scripts, bin, count, arg) {
                 Some(path) => format!("exec sh {}", path.display()),
                 None => continue,
-            },
-            dispatcher => match translate(dispatcher, arg) {
-                Some(command) => command,
+            }
+        } else if dispatcher == "submap" {
+            if arg == "reset" || arg.is_empty() {
+                "mode default".to_string()
+            } else {
+                format!("mode \"{arg}\"")
+            }
+        } else if let Some(command) = translate(dispatcher, arg) {
+            command
+        } else {
+            // No direct sway command: the hyprctl shim maps it, or accepts it as a no-op.
+            let line = format!("hyprctl dispatch {dispatcher} {}", shell_quote(arg));
+            match exec_script(scripts, bin, count, &line) {
+                Some(path) => format!("exec sh {}", path.display()),
                 None => continue,
-            },
+            }
         };
-        let _ = writeln!(out, "bindsym {keys} {command}");
+        let mut flags = String::new();
+        if bind["locked"] == true {
+            flags.push_str("--locked ");
+        }
+        if bind["release"] == true {
+            flags.push_str("--release ");
+        }
+        if bind["repeat"] != true {
+            flags.push_str("--no-repeat ");
+        }
+        modes
+            .entry(submap)
+            .or_default()
+            .push(format!("bindsym {flags}{keys} {command}"));
         count += 1;
     }
-    Some(out)
+    let mut out = String::from("floating_modifier Mod4 normal\n");
+    for line in modes.remove("").unwrap_or_default() {
+        let _ = writeln!(out, "{line}");
+    }
+    for (name, key) in &entered {
+        let lines = modes.entry(name.clone()).or_default();
+        if !lines.iter().any(|l| l.ends_with("mode default")) {
+            lines.push(format!("bindsym {key} mode default"));
+        }
+    }
+    for (name, lines) in modes {
+        let _ = writeln!(out, "mode \"{name}\" {{");
+        for line in lines {
+            let _ = writeln!(out, "    {line}");
+        }
+        let _ = writeln!(out, "}}");
+    }
+    out
 }
 
 /// A sway command for a Hyprland dispatcher, or None when sway has no match.
@@ -257,7 +342,8 @@ fn workspace_target(arg: &str) -> Option<String> {
 }
 
 /// Write an exec bind's command to a script, or None when it would reach the host.
-fn exec_script(dir: &Path, index: usize, command: &str) -> Option<std::path::PathBuf> {
+/// The script puts the desktop's shims first on PATH.
+fn exec_script(dir: &Path, bin: &Path, index: usize, command: &str) -> Option<std::path::PathBuf> {
     let command = command
         .strip_prefix("uwsm-app -- ")
         .unwrap_or(command)
@@ -267,7 +353,11 @@ fn exec_script(dir: &Path, index: usize, command: &str) -> Option<std::path::Pat
     }
     std::fs::create_dir_all(dir).ok()?;
     let path = dir.join(format!("{index}.sh"));
-    std::fs::write(&path, format!("#!/bin/sh\n{command}\n")).ok()?;
+    let path_line = format!(
+        "export PATH={}:\"$PATH\"",
+        shell_quote(&bin.to_string_lossy())
+    );
+    std::fs::write(&path, format!("#!/bin/sh\n{path_line}\n{command}\n")).ok()?;
     Some(path)
 }
 
@@ -339,12 +429,60 @@ mod tests {
     }
 
     #[test]
-    fn host_only_execs_are_skipped_and_uwsm_is_dropped() {
+    fn execs_run_with_shims_and_only_session_power_is_skipped() {
         let dir = std::env::temp_dir().join(format!("cul-binds-test-{}", std::process::id()));
-        assert!(exec_script(&dir, 0, "hyprctl dispatch exit").is_none());
-        assert!(exec_script(&dir, 1, "caelestia shell drawers toggle dashboard").is_none());
-        let path = exec_script(&dir, 2, "uwsm-app -- kitty").unwrap();
-        assert_eq!(std::fs::read_to_string(path).unwrap(), "#!/bin/sh\nkitty\n");
+        let bin = dir.join("bin");
+        assert!(exec_script(&dir, &bin, 0, "systemctl suspend").is_none());
+        assert!(exec_script(&dir, &bin, 1, "loginctl lock-session").is_none());
+        let path = exec_script(&dir, &bin, 2, "caelestia shell drawers toggle launcher").unwrap();
+        let script = std::fs::read_to_string(path).unwrap();
+        assert!(script.contains(&format!("export PATH='{}':", bin.display())));
+        assert!(script.ends_with("caelestia shell drawers toggle launcher\n"));
+        let path = exec_script(&dir, &bin, 3, "uwsm-app -- kitty").unwrap();
+        assert!(std::fs::read_to_string(path)
+            .unwrap()
+            .ends_with("\nkitty\n"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn every_bind_maps_and_submaps_become_modes() {
+        let dir = std::env::temp_dir().join(format!("cul-binds-map-{}", std::process::id()));
+        let bind = |modmask: u64, key: &str, dispatcher: &str, arg: &str, submap: &str| {
+            serde_json::json!({"modmask": modmask, "key": key, "dispatcher": dispatcher,
+                "arg": arg, "submap": submap, "mouse": false, "locked": false,
+                "release": false, "repeat": key == "Up"})
+        };
+        let binds = vec![
+            bind(
+                8,
+                "SPACE",
+                "exec",
+                "caelestia shell drawers toggle launcher",
+                "",
+            ),
+            bind(64, "Z", "togglespecialworkspace", "magic", ""),
+            bind(64, "X", "pin", "", ""),
+            bind(
+                8,
+                "6",
+                "exec",
+                "notify-send on; hyprctl dispatch submap passthrough",
+                "",
+            ),
+            bind(0, "F24", "submap", "reset", "agentdesk-lock"),
+            bind(64, "Up", "movefocus", "u", ""),
+        ];
+        let config = translate_binds(&binds, &dir.join("binds"), &dir.join("bin"));
+        assert!(config.contains("bindsym --no-repeat Mod1+space exec sh "));
+        assert!(config.contains("bindsym --no-repeat Mod4+z exec sh "));
+        assert!(config.contains("bindsym --no-repeat Mod4+x exec sh "));
+        assert!(config.contains("bindsym Mod4+Up focus up"));
+        assert!(config.contains("mode \"passthrough\" {\n    bindsym Mod1+6 mode default\n}"));
+        assert!(config
+            .contains("mode \"agentdesk-lock\" {\n    bindsym --no-repeat F24 mode default\n}"));
+        let shim = std::fs::read_to_string(dir.join("binds/1.sh")).unwrap();
+        assert!(shim.ends_with("hyprctl dispatch togglespecialworkspace 'magic'\n"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }
