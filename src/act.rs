@@ -98,7 +98,13 @@ pub fn changed_region_masked(
 ) -> Option<ChangedRegion> {
     let (w, h) = after.dimensions();
     if before.dimensions() != (w, h) {
-        return Some(ChangedRegion { x: 0, y: 0, width: w, height: h, fraction: 1.0 });
+        return Some(ChangedRegion {
+            x: 0,
+            y: 0,
+            width: w,
+            height: h,
+            fraction: 1.0,
+        });
     }
     let cols = w.div_ceil(TILE);
     let mask = mask.filter(|m| m.len() == (cols * h.div_ceil(TILE)) as usize);
@@ -208,8 +214,12 @@ pub fn landmark_hash(frame: &DynamicImage, x: u32, y: u32) -> Option<String> {
         return None;
     }
     let half = LANDMARK_SAMPLE / 2;
-    let left = x.saturating_sub(half).min(w.saturating_sub(LANDMARK_SAMPLE.min(w)));
-    let top = y.saturating_sub(half).min(h.saturating_sub(LANDMARK_SAMPLE.min(h)));
+    let left = x
+        .saturating_sub(half)
+        .min(w.saturating_sub(LANDMARK_SAMPLE.min(w)));
+    let top = y
+        .saturating_sub(half)
+        .min(h.saturating_sub(LANDMARK_SAMPLE.min(h)));
     let side_w = LANDMARK_SAMPLE.min(w - left);
     let side_h = LANDMARK_SAMPLE.min(h - top);
     let grid = frame
@@ -275,7 +285,9 @@ pub struct LandmarkCheck {
 fn store_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state")))?;
+        .or_else(|| {
+            std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/state"))
+        })?;
     Some(base.join("computer-use-linux").join("landmarks.json"))
 }
 
@@ -312,7 +324,13 @@ pub fn text_landmark_name(text: &str) -> String {
 }
 
 /// Save or replace a landmark from the current frame.
-pub fn save_landmark(app: &str, name: &str, frame: &DynamicImage, x: u32, y: u32) -> Result<Landmark> {
+pub fn save_landmark(
+    app: &str,
+    name: &str,
+    frame: &DynamicImage,
+    x: u32,
+    y: u32,
+) -> Result<Landmark> {
     let hash = landmark_hash(frame, x, y).context("landmark point lies outside the window")?;
     let (window_width, window_height) = frame.dimensions();
     let landmark = Landmark {
@@ -336,7 +354,11 @@ pub fn save_landmark(app: &str, name: &str, frame: &DynamicImage, x: u32, y: u32
 
 /// Check a landmark against the live frame and record the outcome. Returns
 /// the landmark when the check passes, so the caller can click it.
-pub fn check_landmark(app: &str, name: &str, frame: &DynamicImage) -> (Option<Landmark>, LandmarkCheck) {
+pub fn check_landmark(
+    app: &str,
+    name: &str,
+    frame: &DynamicImage,
+) -> (Option<Landmark>, LandmarkCheck) {
     let mut landmarks = load_landmarks();
     let Some(landmark) = landmarks.get_mut(&key(app, name)) else {
         let check = LandmarkCheck {
@@ -351,7 +373,11 @@ pub fn check_landmark(app: &str, name: &str, frame: &DynamicImage) -> (Option<La
 
     let (w, h) = frame.dimensions();
     let (passed, distance, reason) = if landmark.weight < MIN_WEIGHT {
-        (false, None, "weight too low after repeated failures; save it again".to_string())
+        (
+            false,
+            None,
+            "weight too low after repeated failures; save it again".to_string(),
+        )
     } else if (w, h) != (landmark.window_width, landmark.window_height) {
         (
             false,
@@ -363,7 +389,9 @@ pub fn check_landmark(app: &str, name: &str, frame: &DynamicImage) -> (Option<La
         )
     } else {
         let live = landmark_hash(frame, landmark.x, landmark.y);
-        let distance = live.as_deref().and_then(|live| hash_distance(live, &landmark.hash));
+        let distance = live
+            .as_deref()
+            .and_then(|live| hash_distance(live, &landmark.hash));
         match distance {
             Some(d) if d <= HASH_TOLERANCE => (true, Some(d), "pixels match".to_string()),
             Some(d) => (false, Some(d), format!("pixels differ: {d} of 256 bits")),
@@ -402,7 +430,10 @@ mod tests {
 
     #[test]
     fn identical_frames_have_no_change() {
-        assert_eq!(changed_region(&solid(100, 80, 40), &solid(100, 80, 40)), None);
+        assert_eq!(
+            changed_region(&solid(100, 80, 40), &solid(100, 80, 40)),
+            None
+        );
     }
 
     #[test]
@@ -423,7 +454,10 @@ mod tests {
     #[test]
     fn resize_counts_as_full_change() {
         let region = changed_region(&solid(100, 80, 0), &solid(90, 80, 0)).unwrap();
-        assert_eq!((region.width, region.height, region.fraction), (90, 80, 1.0));
+        assert_eq!(
+            (region.width, region.height, region.fraction),
+            (90, 80, 1.0)
+        );
     }
 
     #[test]
@@ -451,7 +485,10 @@ mod tests {
         let faded = solid(96, 96, 60);
         let mut masked_fade = mask.clone();
         masked_fade.iter_mut().for_each(|t| *t = false);
-        assert_eq!(changed_region_masked(&still, &faded, Some(&masked_fade)), None);
+        assert_eq!(
+            changed_region_masked(&still, &faded, Some(&masked_fade)),
+            None
+        );
     }
 
     #[test]
@@ -496,12 +533,21 @@ pub fn ocr_lines(frame: &DynamicImage, region: (u32, u32, u32, u32)) -> Result<V
         .into_iter()
         .filter(|words| !words.is_empty())
         .map(|words| {
-            let text = words.iter().map(|w| w.0.as_str()).collect::<Vec<_>>().join(" ");
+            let text = words
+                .iter()
+                .map(|w| w.0.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
             let left = words.iter().map(|w| w.1).min().unwrap_or(0);
             let top = words.iter().map(|w| w.2).min().unwrap_or(0);
             let right = words.iter().map(|w| w.1 + w.3).max().unwrap_or(0);
             let bottom = words.iter().map(|w| w.2 + w.4).max().unwrap_or(0);
-            TextMatch { text, x: rx + (left + right) / 4, y: ry + (top + bottom) / 4, score: 1.0 }
+            TextMatch {
+                text,
+                x: rx + (left + right) / 4,
+                y: ry + (top + bottom) / 4,
+                score: 1.0,
+            }
         })
         .collect())
 }
@@ -514,7 +560,8 @@ fn ocr_word_lines(frame: &DynamicImage, region: (u32, u32, u32, u32)) -> Result<
         .crop_imm(rx, ry, rw, rh)
         .resize_exact(rw * 2, rh * 2, FilterType::Triangle)
         .to_luma8();
-    let path = std::env::temp_dir().join(format!("cul-ocr-{}-{}.png", std::process::id(), now_secs()));
+    let path =
+        std::env::temp_dir().join(format!("cul-ocr-{}-{}.png", std::process::id(), now_secs()));
     crop.save(&path).context("failed to write the OCR crop")?;
     let output = std::process::Command::new("tesseract")
         .arg(&path)
@@ -538,9 +585,19 @@ fn ocr_word_lines(frame: &DynamicImage, region: (u32, u32, u32, u32)) -> Result<
         if conf < 30.0 {
             continue;
         }
-        let key = (cols[2].to_string(), cols[3].to_string(), cols[4].to_string());
+        let key = (
+            cols[2].to_string(),
+            cols[3].to_string(),
+            cols[4].to_string(),
+        );
         let nums: Vec<u32> = cols[6..10].iter().map(|v| v.parse().unwrap_or(0)).collect();
-        let word = (cols[11].trim().to_string(), nums[0], nums[1], nums[2], nums[3]);
+        let word = (
+            cols[11].trim().to_string(),
+            nums[0],
+            nums[1],
+            nums[2],
+            nums[3],
+        );
         match lines.iter_mut().find(|(k, _)| *k == key) {
             Some((_, words)) => words.push(word),
             None => lines.push((key, vec![word])),
@@ -550,7 +607,11 @@ fn ocr_word_lines(frame: &DynamicImage, region: (u32, u32, u32, u32)) -> Result<
     Ok(lines.into_iter().map(|(_, words)| words).collect())
 }
 
-pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &str) -> Result<Vec<TextMatch>> {
+pub fn find_text(
+    frame: &DynamicImage,
+    region: (u32, u32, u32, u32),
+    target: &str,
+) -> Result<Vec<TextMatch>> {
     let (rx, ry, _, _) = region;
     let lines = ocr_word_lines(frame, region)?;
     let want = normalize(target);
@@ -560,7 +621,11 @@ pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &st
         for start in 0..words.len() {
             for len in 1..=(want_len + 1).min(words.len() - start) {
                 let run = &words[start..start + len];
-                let text = run.iter().map(|w| w.0.as_str()).collect::<Vec<_>>().join(" ");
+                let text = run
+                    .iter()
+                    .map(|w| w.0.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 let got = normalize(&text);
                 let score = if got == want {
                     1.0
@@ -582,11 +647,18 @@ pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &st
             }
         }
     }
-    found.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    found.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     // One screen spot per match: drop runs that land on an already-kept point.
     let mut kept: Vec<TextMatch> = Vec::new();
     for candidate in found {
-        if !kept.iter().any(|k| k.x.abs_diff(candidate.x) < 12 && k.y.abs_diff(candidate.y) < 8) {
+        if !kept
+            .iter()
+            .any(|k| k.x.abs_diff(candidate.x) < 12 && k.y.abs_diff(candidate.y) < 8)
+        {
             kept.push(candidate);
         }
     }
@@ -595,7 +667,13 @@ pub fn find_text(frame: &DynamicImage, region: (u32, u32, u32, u32), target: &st
 
 pub(crate) fn normalize(text: &str) -> String {
     text.chars()
-        .map(|c| if c.is_alphanumeric() || c == '.' { c.to_ascii_lowercase() } else { ' ' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' {
+                c.to_ascii_lowercase()
+            } else {
+                ' '
+            }
+        })
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()

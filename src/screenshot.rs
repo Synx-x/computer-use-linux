@@ -689,7 +689,10 @@ fn encode_image_to_fit_bytes(
             if unscaled {
                 encode_image(img, options)?
             } else {
-                encode_image(&img.resize_exact(target_width, target_height, FilterType::Lanczos3), options)?
+                encode_image(
+                    &img.resize_exact(target_width, target_height, FilterType::Lanczos3),
+                    options,
+                )?
             }
         };
 

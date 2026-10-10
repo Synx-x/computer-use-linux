@@ -21,6 +21,10 @@ use std::time::{Duration, Instant, SystemTime};
 pub const FIRST_VNC_PORT: u16 = 5901;
 const READY_TIMEOUT: Duration = Duration::from_secs(10);
 const OUTPUT: &str = "HEADLESS-1";
+/// The shell every desktop starts, unless `CUL_DESKTOP_SHELL` overrides it.
+/// An empty override starts no shell. The command is skipped when its
+/// program is not on PATH.
+const DEFAULT_SHELL: &str = "qs -c caelestia";
 
 /// The keys a nested child keeps from the daemon's environment. Everything
 /// else, the host session's keys included, is dropped.
@@ -47,6 +51,15 @@ pub fn clean_env() -> Vec<(String, String)> {
                 .map(|value| (key.to_string(), value))
         })
         .collect()
+}
+
+/// The sway `exec` line that starts the desktop shell, or nothing.
+fn shell_exec_line() -> String {
+    let shell = std::env::var("CUL_DESKTOP_SHELL").unwrap_or_else(|_| DEFAULT_SHELL.to_string());
+    let Some(program) = shell.split_whitespace().next() else {
+        return String::new();
+    };
+    format!("exec sh -c 'command -v {program} >/dev/null && exec {shell}'\n")
 }
 
 /// The root of every desktop's runtime directory for the daemon on `port`.
@@ -217,8 +230,10 @@ impl Desktop {
              swaybg_command -\n\
              xwayland disable\n\
              default_border none\n\
-             exec sh -c 'printf %s \"$WAYLAND_DISPLAY\" > {ready}'\n",
-            ready = ready.display()
+             exec sh -c 'printf %s \"$WAYLAND_DISPLAY\" > {ready}'\n\
+             {shell}",
+            ready = ready.display(),
+            shell = shell_exec_line()
         );
         std::fs::write(dir.join("config"), config).context("write sway config")?;
 

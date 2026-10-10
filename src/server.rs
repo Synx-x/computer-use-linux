@@ -14,8 +14,7 @@ use crate::remote_desktop::{
 };
 use crate::screenshot::{
     capture_screenshot_raw, crop_capture, prepare_screenshot_payload, RawScreenshotCapture,
-    ScreenshotCapture,
-    ScreenshotOutputFormat, ScreenshotPayloadOptions,
+    ScreenshotCapture, ScreenshotOutputFormat, ScreenshotPayloadOptions,
 };
 use crate::terminal::{terminal_paste_shortcut, TerminalPasteShortcut};
 use crate::windowing::registry;
@@ -86,7 +85,8 @@ pub struct ComputerUseLinux {
     act_failures: Arc<Mutex<std::collections::HashMap<u64, String>>>,
     /// Last frame each `act` call saw, per window. The gap between two calls
     /// has no input, so what changes across it animates on its own.
-    act_last_frames: Arc<Mutex<std::collections::HashMap<u64, (std::time::Instant, image::DynamicImage)>>>,
+    act_last_frames:
+        Arc<Mutex<std::collections::HashMap<u64, (std::time::Instant, image::DynamicImage)>>>,
     /// Numbered targets from the last look with marks, per window.
     act_marks: Arc<Mutex<std::collections::HashMap<u64, Vec<ActMark>>>>,
 }
@@ -597,13 +597,14 @@ impl ComputerUseLinux {
                             None,
                         )
                     })?;
-                let cropped = crop_capture(raw_capture, x.max(0) as u32, y.max(0) as u32, width, height)
-                    .map_err(|error| {
-                        ErrorData::internal_error(
-                            format!("targeted screenshot crop failed: {error:#}"),
-                            None,
-                        )
-                    })?;
+                let cropped =
+                    crop_capture(raw_capture, x.max(0) as u32, y.max(0) as u32, width, height)
+                        .map_err(|error| {
+                            ErrorData::internal_error(
+                                format!("targeted screenshot crop failed: {error:#}"),
+                                None,
+                            )
+                        })?;
                 (cropped, true)
             }
             None => (raw_capture, false),
@@ -649,11 +650,19 @@ impl ComputerUseLinux {
             open_world_hint = true
         )
     )]
-    async fn act(&self, Parameters(params): Parameters<ActParams>) -> Result<CallToolResult, ErrorData> {
+    async fn act(
+        &self,
+        Parameters(params): Parameters<ActParams>,
+    ) -> Result<CallToolResult, ErrorData> {
         let internal = |message: String| ErrorData::internal_error(message, None);
-        let target = WindowTarget { window_id: Some(params.window_id), ..Default::default() };
+        let target = WindowTarget {
+            window_id: Some(params.window_id),
+            ..Default::default()
+        };
         let window = {
-            let windows = list_windows().await.map_err(|e| internal(format!("act: {e:#}")))?;
+            let windows = list_windows()
+                .await
+                .map_err(|e| internal(format!("act: {e:#}")))?;
             resolve_window_target(&windows, &target)
                 .map_err(|e| internal(format!("act: {e:#}")))?
                 .clone()
@@ -672,7 +681,9 @@ impl ComputerUseLinux {
                 "refused": Self::blind_retry_refusal("act", reason, None).message,
                 "window": {"window_id": window.window_id, "app": app, "title": window.title},
             });
-            return Ok(CallToolResult::success(vec![ContentBlock::text(refusal.to_string())]));
+            return Ok(CallToolResult::success(vec![ContentBlock::text(
+                refusal.to_string(),
+            )]));
         }
         if is_look {
             self.set_failure(window.window_id, None);
@@ -683,9 +694,17 @@ impl ComputerUseLinux {
             .clone()
             .or_else(|| (!is_look).then(|| "change".to_string()));
         // The agent earns a full image with a pure look or right after a failed check.
-        let requested = params.observe.as_deref().unwrap_or("delta").to_ascii_lowercase();
-        let (observe, observe_note) = if requested == "full" && !is_look && prior_failure.is_none() {
-            ("delta".to_string(), Some("full downgraded to delta: use steps=[] with observe=full to look"))
+        let requested = params
+            .observe
+            .as_deref()
+            .unwrap_or("delta")
+            .to_ascii_lowercase();
+        let (observe, observe_note) = if requested == "full" && !is_look && prior_failure.is_none()
+        {
+            (
+                "delta".to_string(),
+                Some("full downgraded to delta: use steps=[] with observe=full to look"),
+            )
         } else {
             (requested.clone(), None)
         };
@@ -694,15 +713,25 @@ impl ComputerUseLinux {
 
         // Focus once up front so the before-frame shows the window on top.
         let _ = focus_window_target(&target).await;
-        let before = if needs_frames { self.capture_window_frame(&window).await.ok() } else { None };
+        let before = if needs_frames {
+            self.capture_window_frame(&window).await.ok()
+        } else {
+            None
+        };
         // Two more frames with no input show which tiles animate on their own.
         // Diffs then ignore them, so a moving background cannot fake a change.
         let mask = match (&before, is_look) {
             (Some(first), false) => {
                 let mut frames = Vec::new();
-                let last = self.act_last_frames.lock().ok().and_then(|map| map.get(&window.window_id).cloned());
+                let last = self
+                    .act_last_frames
+                    .lock()
+                    .ok()
+                    .and_then(|map| map.get(&window.window_id).cloned());
                 if let Some((at, frame)) = last {
-                    if at.elapsed() < Duration::from_secs(120) && (frame.width(), frame.height()) == (first.width(), first.height()) {
+                    if at.elapsed() < Duration::from_secs(120)
+                        && (frame.width(), frame.height()) == (first.width(), first.height())
+                    {
                         frames.push(frame);
                     }
                 }
@@ -724,7 +753,15 @@ impl ComputerUseLinux {
         let mut quiet_at = None;
         for step in &params.steps {
             let (label, outcome) = self
-                .run_act_step(step, &window, &app, &mut landmark_checks, before.as_ref(), &mut quiet_at, mask.as_deref())
+                .run_act_step(
+                    step,
+                    &window,
+                    &app,
+                    &mut landmark_checks,
+                    before.as_ref(),
+                    &mut quiet_at,
+                    mask.as_deref(),
+                )
                 .await;
             if !matches!(step, ActStep::Wait { .. } | ActStep::SaveLandmark { .. }) {
                 quiet_at = None;
@@ -768,7 +805,11 @@ impl ComputerUseLinux {
         let title_after = list_windows()
             .await
             .ok()
-            .and_then(|windows| windows.into_iter().find(|w| w.window_id == window.window_id))
+            .and_then(|windows| {
+                windows
+                    .into_iter()
+                    .find(|w| w.window_id == window.window_id)
+            })
             .and_then(|w| w.title)
             .or_else(|| window.title.clone());
         // A new page needs a full look anyway, so send it now instead of a
@@ -837,9 +878,19 @@ impl ComputerUseLinux {
             step_results
                 .iter()
                 .find(|step| step["ok"] == false)
-                .map(|step| format!("step '{}' failed: {}", step["step"].as_str().unwrap_or("?"), step["message"].as_str().unwrap_or("")))
+                .map(|step| {
+                    format!(
+                        "step '{}' failed: {}",
+                        step["step"].as_str().unwrap_or("?"),
+                        step["message"].as_str().unwrap_or("")
+                    )
+                })
         } else if expect_passed == Some(false) {
-            Some(format!("expected {} but changed={:?}", expect.as_deref().unwrap_or("?"), changed))
+            Some(format!(
+                "expected {} but changed={:?}",
+                expect.as_deref().unwrap_or("?"),
+                changed
+            ))
         } else {
             None
         };
@@ -853,17 +904,36 @@ impl ComputerUseLinux {
         if is_look && params.marks.unwrap_or(false) {
             let mut marks = Vec::new();
             for (name, object_ref, action) in self.pressable_nodes(&window).await {
-                if marks.iter().any(|m: &ActMark| m.text == name && m.source == "accessibility") {
+                if marks
+                    .iter()
+                    .any(|m: &ActMark| m.text == name && m.source == "accessibility")
+                {
                     continue;
                 }
-                marks.push(ActMark { mark: marks.len() as u32 + 1, text: name, source: "accessibility",
-                                     object_ref: Some(object_ref), action: Some(action), x: None, y: None });
+                marks.push(ActMark {
+                    mark: marks.len() as u32 + 1,
+                    text: name,
+                    source: "accessibility",
+                    object_ref: Some(object_ref),
+                    action: Some(action),
+                    x: None,
+                    y: None,
+                });
             }
             if let Some(after) = frame_after.as_ref() {
-                if let Ok(lines) = crate::act::ocr_lines(after, (0, 0, after.width(), after.height())) {
+                if let Ok(lines) =
+                    crate::act::ocr_lines(after, (0, 0, after.width(), after.height()))
+                {
                     for line in lines {
-                        marks.push(ActMark { mark: marks.len() as u32 + 1, text: line.text, source: "text",
-                                             object_ref: None, action: None, x: Some(line.x), y: Some(line.y) });
+                        marks.push(ActMark {
+                            mark: marks.len() as u32 + 1,
+                            text: line.text,
+                            source: "text",
+                            object_ref: None,
+                            action: None,
+                            x: Some(line.x),
+                            y: Some(line.y),
+                        });
                     }
                 }
             }
@@ -963,7 +1033,11 @@ impl ComputerUseLinux {
     )]
     async fn click(&self, Parameters(mut params): Parameters<ClickParams>) -> Json<ActionOutput> {
         if let Some(reason) = self.failure_for(params.window_id) {
-            return Json(Self::blind_retry_refusal("click", reason, Some(serde_json::json!(params.clone()))));
+            return Json(Self::blind_retry_refusal(
+                "click",
+                reason,
+                Some(serde_json::json!(params.clone())),
+            ));
         }
         let received = Some(serde_json::json!(params.clone()));
         let input_guard = Arc::clone(&self.input_operation_lock).lock_owned().await;
@@ -994,7 +1068,10 @@ impl ComputerUseLinux {
                 }
             };
             // Let the compositor repaint only when focus actually moved.
-            if focus.as_ref().is_some_and(|focus| !focus.was_already_focused) {
+            if focus
+                .as_ref()
+                .is_some_and(|focus| !focus.was_already_focused)
+            {
                 tokio::time::sleep(Duration::from_millis(120)).await;
             }
             // Window-relative coordinates: translate by the window's top-left so
@@ -1119,7 +1196,8 @@ impl ComputerUseLinux {
             return Json(with_notes(
                 nested_action_result(
                     "click",
-                    result.map(|(lx, ly)| format!("Clicked at ({lx}, {ly}) on the nested display.")),
+                    result
+                        .map(|(lx, ly)| format!("Clicked at ({lx}, {ly}) on the nested display.")),
                     received,
                 ),
                 off_screen_note,
@@ -1413,7 +1491,10 @@ impl ComputerUseLinux {
                 }
             };
             // Let the compositor repaint only when focus actually moved.
-            if focus.as_ref().is_some_and(|focus| !focus.was_already_focused) {
+            if focus
+                .as_ref()
+                .is_some_and(|focus| !focus.was_already_focused)
+            {
                 tokio::time::sleep(Duration::from_millis(120)).await;
             }
             if params.relative == Some(true) {
@@ -3325,7 +3406,11 @@ impl ComputerUseLinux {
         }
     }
 
-    fn blind_retry_refusal(action: &str, reason: String, received: Option<serde_json::Value>) -> ActionOutput {
+    fn blind_retry_refusal(
+        action: &str,
+        reason: String,
+        received: Option<serde_json::Value>,
+    ) -> ActionOutput {
         ActionOutput {
             ok: false,
             implemented: true,
@@ -3352,7 +3437,12 @@ impl ComputerUseLinux {
     /// Wait up to `max_ms` for the window to go quiet. It needs two frame
     /// pairs in a row to match, so a page that pauses briefly mid-load does
     /// not count. Returns the milliseconds spent and whether it went quiet.
-    async fn wait_quiet(&self, window: &WindowInfo, max_ms: u64, mask: Option<&[bool]>) -> (u64, bool) {
+    async fn wait_quiet(
+        &self,
+        window: &WindowInfo,
+        max_ms: u64,
+        mask: Option<&[bool]>,
+    ) -> (u64, bool) {
         let start = std::time::Instant::now();
         let deadline = start + Duration::from_millis(max_ms);
         tokio::time::sleep(Duration::from_millis(max_ms.min(200))).await;
@@ -3362,7 +3452,9 @@ impl ComputerUseLinux {
         let mut quiet_pairs = 0;
         while std::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(100)).await;
-            let Ok(current) = self.capture_window_frame(window).await else { break };
+            let Ok(current) = self.capture_window_frame(window).await else {
+                break;
+            };
             if Self::is_quiet(&previous, &current, mask) {
                 quiet_pairs += 1;
                 if quiet_pairs >= 2 {
@@ -3387,12 +3479,17 @@ impl ComputerUseLinux {
         };
         nodes
             .into_iter()
-            .filter(|n| n.states.iter().any(|s| s == "showing") && n.states.iter().any(|s| s == "sensitive"))
+            .filter(|n| {
+                n.states.iter().any(|s| s == "showing") && n.states.iter().any(|s| s == "sensitive")
+            })
             .filter_map(|n| {
                 let name = n.name.clone()?.trim().to_string();
                 let action = n.actions.iter().find(|a| {
                     let lower = a.name.to_ascii_lowercase();
-                    !lower.contains('.') && ["click", "press", "activate", "toggle"].iter().any(|k| lower.contains(k))
+                    !lower.contains('.')
+                        && ["click", "press", "activate", "toggle"]
+                            .iter()
+                            .any(|k| lower.contains(k))
                 })?;
                 (!name.is_empty()).then(|| (name, n.object_ref.clone(), action.name.clone()))
             })
@@ -3401,24 +3498,39 @@ impl ComputerUseLinux {
 
     /// Press the one pressable control whose name matches. None means no
     /// unique match, so the caller falls back to OCR.
-    async fn press_by_name(&self, window: &WindowInfo, text: &str) -> Option<std::result::Result<String, String>> {
+    async fn press_by_name(
+        &self,
+        window: &WindowInfo,
+        text: &str,
+    ) -> Option<std::result::Result<String, String>> {
         let want = crate::act::normalize(text);
         let nodes = self.pressable_nodes(window).await;
-        let exact: Vec<_> = nodes.iter().filter(|(name, _, _)| crate::act::normalize(name) == want).collect();
+        let exact: Vec<_> = nodes
+            .iter()
+            .filter(|(name, _, _)| crate::act::normalize(name) == want)
+            .collect();
         let pool = if exact.is_empty() {
             nodes
                 .iter()
-                .filter(|(name, _, _)| crate::act::similarity(&crate::act::normalize(name), &want) >= 0.85)
+                .filter(|(name, _, _)| {
+                    crate::act::similarity(&crate::act::normalize(name), &want) >= 0.85
+                })
                 .collect()
         } else {
             exact
         };
-        let [(name, object_ref, action)] = pool.as_slice() else { return None };
-        Some(match crate::atspi_tree::perform_named_action(object_ref, action).await {
-            Ok(done) if done.ok => Ok(format!("pressed {name:?} through its accessibility action, no OCR")),
-            Ok(_) => Err(format!("{name:?} refused its accessibility action")),
-            Err(e) => Err(format!("accessibility press failed: {e:#}")),
-        })
+        let [(name, object_ref, action)] = pool.as_slice() else {
+            return None;
+        };
+        Some(
+            match crate::atspi_tree::perform_named_action(object_ref, action).await {
+                Ok(done) if done.ok => Ok(format!(
+                    "pressed {name:?} through its accessibility action, no OCR"
+                )),
+                Ok(_) => Err(format!("{name:?} refused its accessibility action")),
+                Err(e) => Err(format!("accessibility press failed: {e:#}")),
+            },
+        )
     }
 
     /// Poll the window until two frames 80 ms apart match, for at most 1.2 s.
@@ -3437,7 +3549,11 @@ impl ComputerUseLinux {
 
     /// Two frames count as quiet when only ambient tiles, or a tiny share of
     /// tiles, changed between them.
-    fn is_quiet(previous: &image::DynamicImage, current: &image::DynamicImage, mask: Option<&[bool]>) -> bool {
+    fn is_quiet(
+        previous: &image::DynamicImage,
+        current: &image::DynamicImage,
+        mask: Option<&[bool]>,
+    ) -> bool {
         crate::act::changed_region_masked(previous, current, mask)
             .is_none_or(|r| r.fraction < crate::act::QUIET_FRACTION)
     }
@@ -3445,10 +3561,14 @@ impl ComputerUseLinux {
     /// Poll the window until two frames 80 ms apart match, for at most 1.2 s.
     async fn wait_until_still(&self, window: &WindowInfo, mask: Option<&[bool]>) {
         let deadline = std::time::Instant::now() + Duration::from_millis(1200);
-        let Ok(mut previous) = self.capture_window_frame(window).await else { return };
+        let Ok(mut previous) = self.capture_window_frame(window).await else {
+            return;
+        };
         while std::time::Instant::now() < deadline {
             tokio::time::sleep(Duration::from_millis(80)).await;
-            let Ok(current) = self.capture_window_frame(window).await else { return };
+            let Ok(current) = self.capture_window_frame(window).await else {
+                return;
+            };
             if Self::is_quiet(&previous, &current, mask) {
                 return;
             }
@@ -3471,25 +3591,48 @@ impl ComputerUseLinux {
     ) -> (String, std::result::Result<String, String>) {
         let wid = window.window_id;
         let action = |output: ActionOutput| {
-            if output.ok { Ok(output.message) } else { Err(output.message) }
+            if output.ok {
+                Ok(output.message)
+            } else {
+                Err(output.message)
+            }
         };
         match step {
-            ActStep::Click { mark: Some(number), .. } => {
+            ActStep::Click {
+                mark: Some(number), ..
+            } => {
                 let label = format!("click mark {number}");
                 self.settle_before_click(window, quiet_at, mask).await;
-                let found = self
-                    .act_marks
-                    .lock()
-                    .ok()
-                    .and_then(|map| map.get(&wid).and_then(|marks| marks.iter().find(|m| m.mark == *number).cloned()));
+                let found = self.act_marks.lock().ok().and_then(|map| {
+                    map.get(&wid)
+                        .and_then(|marks| marks.iter().find(|m| m.mark == *number).cloned())
+                });
                 let Some(mark) = found else {
-                    return (label, Err(format!("no mark {number}: look with marks=true first")));
+                    return (
+                        label,
+                        Err(format!("no mark {number}: look with marks=true first")),
+                    );
                 };
                 if let (Some(object_ref), Some(name)) = (&mark.object_ref, &mark.action) {
                     return match crate::atspi_tree::perform_named_action(object_ref, name).await {
-                        Ok(done) if done.ok => (label, Ok(format!("pressed {:?} through its accessibility action", mark.text))),
-                        Ok(_) => (label, Err(format!("{:?} refused its accessibility action", mark.text))),
-                        Err(e) => (label, Err(format!("mark {number} {:?} is gone, look again: {e:#}", mark.text))),
+                        Ok(done) if done.ok => (
+                            label,
+                            Ok(format!(
+                                "pressed {:?} through its accessibility action",
+                                mark.text
+                            )),
+                        ),
+                        Ok(_) => (
+                            label,
+                            Err(format!("{:?} refused its accessibility action", mark.text)),
+                        ),
+                        Err(e) => (
+                            label,
+                            Err(format!(
+                                "mark {number} {:?} is gone, look again: {e:#}",
+                                mark.text
+                            )),
+                        ),
                     };
                 }
                 // An OCR mark is checked where it was seen, so a moved or
@@ -3503,7 +3646,13 @@ impl ComputerUseLinux {
                 };
                 let (w, h) = (frame.width(), frame.height());
                 let region = crate::act::padded(
-                    crate::act::ChangedRegion { x: mx.saturating_sub(80), y: my.saturating_sub(20), width: 160, height: 40, fraction: 0.0 },
+                    crate::act::ChangedRegion {
+                        x: mx.saturating_sub(80),
+                        y: my.saturating_sub(20),
+                        width: 160,
+                        height: 40,
+                        fraction: 0.0,
+                    },
                     w,
                     h,
                 );
@@ -3512,7 +3661,13 @@ impl ComputerUseLinux {
                     Err(e) => return (label, Err(format!("text check failed: {e:#}"))),
                 };
                 let Some(target) = target else {
-                    return (label, Err(format!("mark {number} {:?} is no longer at {mx},{my}, look again", mark.text)));
+                    return (
+                        label,
+                        Err(format!(
+                            "mark {number} {:?} is no longer at {mx},{my}, look again",
+                            mark.text
+                        )),
+                    );
                 };
                 let params = serde_json::from_value::<ClickParams>(serde_json::json!({
                     "window_id": wid, "relative": true, "x": target.x, "y": target.y,
@@ -3520,12 +3675,24 @@ impl ComputerUseLinux {
                 match params {
                     Ok(params) => {
                         let result = action(self.click(Parameters(params)).await.0);
-                        (label, result.map(|_| format!("clicked {:?} at {},{}", mark.text, target.x, target.y)))
+                        (
+                            label,
+                            result.map(|_| {
+                                format!("clicked {:?} at {},{}", mark.text, target.x, target.y)
+                            }),
+                        )
                     }
                     Err(e) => (label, Err(format!("bad mark click: {e}"))),
                 }
             }
-            ActStep::Click { x, y, landmark, button, click_count, .. } => {
+            ActStep::Click {
+                x,
+                y,
+                landmark,
+                button,
+                click_count,
+                ..
+            } => {
                 // Wait for the window to stop moving so the click hits the
                 // settled layout, not a scroll or menu mid-animation.
                 self.settle_before_click(window, quiet_at, mask).await;
@@ -3533,19 +3700,38 @@ impl ComputerUseLinux {
                     Some(name) => {
                         let frame = match self.capture_window_frame(window).await {
                             Ok(frame) => frame,
-                            Err(e) => return (format!("click {name}"), Err(format!("capture failed: {e:#}"))),
+                            Err(e) => {
+                                return (
+                                    format!("click {name}"),
+                                    Err(format!("capture failed: {e:#}")),
+                                )
+                            }
                         };
                         let (found, check) = crate::act::check_landmark(app, name, &frame);
                         let reason = check.reason.clone();
                         landmark_checks.push(check);
                         match found {
-                            Some(mark) => (mark.x as i32, mark.y as i32, format!("click landmark {name}")),
-                            None => return (format!("click landmark {name}"), Err(format!("landmark check failed: {reason}"))),
+                            Some(mark) => (
+                                mark.x as i32,
+                                mark.y as i32,
+                                format!("click landmark {name}"),
+                            ),
+                            None => {
+                                return (
+                                    format!("click landmark {name}"),
+                                    Err(format!("landmark check failed: {reason}")),
+                                )
+                            }
                         }
                     }
                     None => match (x, y) {
                         (Some(x), Some(y)) => (*x, *y, format!("click {x},{y}")),
-                        _ => return ("click".to_string(), Err("click needs x and y, or a landmark".to_string())),
+                        _ => {
+                            return (
+                                "click".to_string(),
+                                Err("click needs x and y, or a landmark".to_string()),
+                            )
+                        }
                     },
                 };
                 let params = serde_json::from_value::<ClickParams>(serde_json::json!({
@@ -3575,9 +3761,11 @@ impl ComputerUseLinux {
                 let (w, h) = (frame.width(), frame.height());
                 let whole = (0, 0, w, h);
                 let region = match (scope.as_deref().unwrap_or("new"), before) {
-                    ("new", Some(before)) => crate::act::changed_region_masked(before, &frame, mask)
-                        .map(|r| crate::act::padded(r, w, h))
-                        .unwrap_or(whole),
+                    ("new", Some(before)) => {
+                        crate::act::changed_region_masked(before, &frame, mask)
+                            .map(|r| crate::act::padded(r, w, h))
+                            .unwrap_or(whole)
+                    }
                     _ => whole,
                 };
                 // A label clicked before is saved as a landmark. When its pixels
@@ -3593,7 +3781,10 @@ impl ComputerUseLinux {
                             if let Ok(params) = params {
                                 let result = action(self.click(Parameters(params)).await.0);
                                 *quiet_at = None;
-                                let note = format!("clicked cached {text:?} at {},{} (landmark matched, no OCR)", mark.x, mark.y);
+                                let note = format!(
+                                    "clicked cached {text:?} at {},{} (landmark matched, no OCR)",
+                                    mark.x, mark.y
+                                );
                                 return (label, result.map(|_| note));
                             }
                         }
@@ -3604,14 +3795,37 @@ impl ComputerUseLinux {
                     Err(e) => return (label, Err(format!("text search failed: {e:#}"))),
                 };
                 let chosen = match (nth, matches.len()) {
-                    (_, 0) => return (label, Err(format!("no text matching {text:?} in the searched area {region:?}"))),
-                    (Some(n), count) if (*n as usize) >= 1 && (*n as usize) <= count => &matches[*n as usize - 1],
-                    (Some(n), count) => return (label, Err(format!("nth {n} requested but only {count} matches"))),
+                    (_, 0) => {
+                        return (
+                            label,
+                            Err(format!(
+                                "no text matching {text:?} in the searched area {region:?}"
+                            )),
+                        )
+                    }
+                    (Some(n), count) if (*n as usize) >= 1 && (*n as usize) <= count => {
+                        &matches[*n as usize - 1]
+                    }
+                    (Some(n), count) => {
+                        return (
+                            label,
+                            Err(format!("nth {n} requested but only {count} matches")),
+                        )
+                    }
                     (None, 1) => &matches[0],
                     (None, _) if matches[0].score > matches[1].score + 0.1 => &matches[0],
                     (None, count) => {
-                        let seen: Vec<String> = matches.iter().map(|m| format!("{:?} at {},{}", m.text, m.x, m.y)).collect();
-                        return (label, Err(format!("{count} matches for {text:?}, pass nth: {}", seen.join("; "))));
+                        let seen: Vec<String> = matches
+                            .iter()
+                            .map(|m| format!("{:?} at {},{}", m.text, m.x, m.y))
+                            .collect();
+                        return (
+                            label,
+                            Err(format!(
+                                "{count} matches for {text:?}, pass nth: {}",
+                                seen.join("; ")
+                            )),
+                        );
                     }
                 };
                 let params = serde_json::from_value::<ClickParams>(serde_json::json!({
@@ -3621,10 +3835,19 @@ impl ComputerUseLinux {
                 match params {
                     Ok(params) => {
                         if unique {
-                            let _ = crate::act::save_landmark(app, &cache_name, &frame, chosen.x, chosen.y);
+                            let _ = crate::act::save_landmark(
+                                app,
+                                &cache_name,
+                                &frame,
+                                chosen.x,
+                                chosen.y,
+                            );
                         }
                         let result = action(self.click(Parameters(params)).await.0);
-                        let note = format!("clicked {:?} at {},{} (score {:.2})", chosen.text, chosen.x, chosen.y, chosen.score);
+                        let note = format!(
+                            "clicked {:?} at {},{} (score {:.2})",
+                            chosen.text, chosen.x, chosen.y, chosen.score
+                        );
                         (label, result.map(|_| note))
                     }
                     Err(e) => (label, Err(format!("bad click_text step: {e}"))),
@@ -3635,7 +3858,10 @@ impl ComputerUseLinux {
                     "window_id": wid, "key": key,
                 }));
                 match params {
-                    Ok(params) => (format!("key {key}"), action(self.press_key(Parameters(params)).await.0)),
+                    Ok(params) => (
+                        format!("key {key}"),
+                        action(self.press_key(Parameters(params)).await.0),
+                    ),
                     Err(e) => (format!("key {key}"), Err(format!("bad key step: {e}"))),
                 }
             }
@@ -3649,7 +3875,12 @@ impl ComputerUseLinux {
                     Err(e) => (label, Err(format!("bad type step: {e}"))),
                 }
             }
-            ActStep::Scroll { direction, pages, x, y } => {
+            ActStep::Scroll {
+                direction,
+                pages,
+                x,
+                y,
+            } => {
                 let mut value = serde_json::json!({
                     "window_id": wid, "direction": direction, "pages": pages,
                 });
@@ -3659,21 +3890,34 @@ impl ComputerUseLinux {
                     value["y"] = serde_json::json!(y);
                 }
                 match serde_json::from_value::<ScrollParams>(value) {
-                    Ok(params) => (format!("scroll {direction}"), action(self.scroll(Parameters(params)).await.0)),
-                    Err(e) => (format!("scroll {direction}"), Err(format!("bad scroll step: {e}"))),
+                    Ok(params) => (
+                        format!("scroll {direction}"),
+                        action(self.scroll(Parameters(params)).await.0),
+                    ),
+                    Err(e) => (
+                        format!("scroll {direction}"),
+                        Err(format!("bad scroll step: {e}")),
+                    ),
                 }
             }
             ActStep::Wait { ms, exact } => {
                 let ms = (*ms).min(30_000);
                 if exact.unwrap_or(false) {
                     tokio::time::sleep(Duration::from_millis(ms)).await;
-                    return (format!("wait {ms}ms"), Ok("waited the full time".to_string()));
+                    return (
+                        format!("wait {ms}ms"),
+                        Ok("waited the full time".to_string()),
+                    );
                 }
                 let (spent, quiet) = self.wait_quiet(window, ms, mask).await;
                 if quiet {
                     *quiet_at = Some(std::time::Instant::now());
                 }
-                let note = if quiet { format!("quiet after {spent}ms") } else { format!("still changing after {spent}ms") };
+                let note = if quiet {
+                    format!("quiet after {spent}ms")
+                } else {
+                    format!("still changing after {spent}ms")
+                };
                 (format!("wait up to {ms}ms"), Ok(note))
             }
             ActStep::SaveLandmark { name, x, y } => {
@@ -3682,7 +3926,13 @@ impl ComputerUseLinux {
                     Ok(frame) => frame,
                     Err(e) => return (label, Err(format!("capture failed: {e:#}"))),
                 };
-                match crate::act::save_landmark(app, name, &frame, (*x).max(0) as u32, (*y).max(0) as u32) {
+                match crate::act::save_landmark(
+                    app,
+                    name,
+                    &frame,
+                    (*x).max(0) as u32,
+                    (*y).max(0) as u32,
+                ) {
                     Ok(_) => (label, Ok(format!("saved for {app}"))),
                     Err(e) => (label, Err(format!("{e:#}"))),
                 }
@@ -5755,8 +6005,14 @@ fn ydotool_type_timing_ms() -> (u64, u64) {
             .unwrap_or(default)
     };
     (
-        read("COMPUTER_USE_LINUX_TYPE_KEY_DELAY_MS", YDOTOOL_TYPE_KEY_DELAY_MS),
-        read("COMPUTER_USE_LINUX_TYPE_KEY_HOLD_MS", YDOTOOL_TYPE_KEY_HOLD_MS),
+        read(
+            "COMPUTER_USE_LINUX_TYPE_KEY_DELAY_MS",
+            YDOTOOL_TYPE_KEY_DELAY_MS,
+        ),
+        read(
+            "COMPUTER_USE_LINUX_TYPE_KEY_HOLD_MS",
+            YDOTOOL_TYPE_KEY_HOLD_MS,
+        ),
     )
 }
 

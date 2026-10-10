@@ -330,10 +330,22 @@ fn hypr_socket_output(args: &[&str]) -> Option<std::process::Output> {
         .ok()
         .filter(|value| !value.trim().is_empty())
         .or_else(infer_hyprland_instance_signature)?;
-    let path = xdg_runtime_dir()?.join("hypr").join(signature).join(".socket.sock");
+    let path = xdg_runtime_dir()?
+        .join("hypr")
+        .join(signature)
+        .join(".socket.sock");
     let json = args.contains(&"-j");
-    let command = args.iter().filter(|arg| **arg != "-j").copied().collect::<Vec<_>>().join(" ");
-    let request = if json { format!("j/{command}") } else { command };
+    let command = args
+        .iter()
+        .filter(|arg| **arg != "-j")
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let request = if json {
+        format!("j/{command}")
+    } else {
+        command
+    };
 
     let mut stream = UnixStream::connect(path).ok()?;
     let timeout = Some(std::time::Duration::from_secs(2));

@@ -1,6 +1,6 @@
 mod abs_pointer;
-mod act;
 mod accessibility_guard;
+mod act;
 #[path = "atspi_tree.rs"]
 mod atspi_tree_impl;
 mod cli;
@@ -48,8 +48,7 @@ pub mod diagnostics {
 pub mod screenshot {
     pub(crate) use crate::screenshot_impl::{
         capture_screenshot, crop_capture, prepare_screenshot_payload, ScreenshotCapture,
-        ScreenshotOutputFormat,
-        ScreenshotPayloadOptions,
+        ScreenshotOutputFormat, ScreenshotPayloadOptions,
     };
     pub use crate::screenshot_impl::{capture_screenshot_raw, RawScreenshotCapture};
 }
