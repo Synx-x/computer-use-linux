@@ -114,6 +114,7 @@ Register it with Claude Code: `claude mcp add --scope user agent-desktops -- com
 
 ## Known limits
 
+- NVIDIA's driver fails wlroots screen capture at some desktop sizes, such as 1170×2532. This leaves Focus and thumbnails blank. On a machine with NVIDIA beside another GPU, each desktop's sway therefore draws on the other GPU. `CUL_DESKTOP_RENDER_DEVICE=/dev/dri/renderDN` picks the node. An empty value leaves the choice to wlroots.
 - Linux with sway only. Windows support would need its own backend.
 - wayvnc 0.10.2 crashes on WebSocket handshakes. The daemon therefore talks plain TCP to wayvnc and does the WebSocket framing itself.
 - In agent-browser, `keyboard type` does not reach the stream, because noVNC listens for real key events. Its `press` command works.
