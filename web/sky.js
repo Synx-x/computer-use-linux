@@ -189,3 +189,28 @@ class SkyLogic {
   addEventListener('pagehide', function () { comp.componentWillUnmount(); });
   window.sky = { comp: comp, transition: function (k) { comp.skyTransition(k); }, setMoving: function (on) { comp.skySetMoving(on); }, get stats() { return comp.sk.stats; } };
 })();
+
+/* Sky look setting: hires, real or original. Saved in localStorage beside the other
+   settings. Storage can throw, so every access is guarded. */
+(function () {
+  var skyEl = document.getElementById('sky'), opts = document.getElementById('look-opts');
+  if (!skyEl) return;
+  var BASE = { hires: 'sky/hires/', real: 'sky/' };
+  var deep = skyEl.querySelector('.sphere>img'), neb = skyEl.querySelector('.nebula');
+  function swap(img, file, base) { var want = base + file; if (img && img.getAttribute('src') !== want) img.src = want; }
+  function apply(k) {
+    if (k !== 'real' && k !== 'original') k = 'hires';
+    skyEl.dataset.look = k;
+    if (BASE[k]) { swap(deep, 'deep-field.webp', BASE[k]); swap(neb, 'nebula-tarantula.webp', BASE[k]); }
+    if (opts) [].forEach.call(opts.querySelectorAll('button[data-k]'), function (b) { b.setAttribute('aria-checked', String(b.dataset.k === k)); });
+  }
+  var saved = null;
+  try { saved = localStorage.getItem('ad.skyLook'); } catch (e) {}
+  apply(saved);
+  if (opts) opts.addEventListener('click', function (e) {
+    var b = e.target.closest('button[data-k]');
+    if (!b) return;
+    try { localStorage.setItem('ad.skyLook', b.dataset.k); } catch (err) {}
+    apply(b.dataset.k);
+  });
+})();
