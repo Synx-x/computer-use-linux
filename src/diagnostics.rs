@@ -109,6 +109,9 @@ pub struct PlatformReport {
     pub xdg_runtime_dir: Option<String>,
     pub gnome_shell_version: Check,
     pub gnome_screenshot: Check,
+    /// `grim` binary for direct wlroots capture. Reported as a screenshot
+    /// route only on a Wayland session, matching what the capture chain tries.
+    pub grim: Check,
     /// Native X11 display for the root-window screenshot route. Fails on
     /// Wayland sessions, including XWayland, by design.
     pub x11_display: Check,
@@ -383,10 +386,33 @@ fn capability_map_with_portal_keyboard(
     }
 }
 
+/// Hydration spawns `systemctl --user show-environment` and walks the process
+/// tree. Every tool call runs it, so repeat it at most once a minute: often
+/// enough to pick up a session that appears after the server started.
+const HYDRATE_INTERVAL_MS: u64 = 60_000;
+static LAST_HYDRATE_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 pub fn hydrate_session_bus_env() {
+    use std::sync::atomic::Ordering;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_HYDRATE_MS.load(Ordering::Relaxed);
+    if last != 0 && now_ms.saturating_sub(last) < HYDRATE_INTERVAL_MS {
+        return;
+    }
+    LAST_HYDRATE_MS.store(now_ms, Ordering::Relaxed);
+
     hydrate_common_command_path();
-    hydrate_desktop_env_from_process_tree();
-    hydrate_desktop_env_from_systemd_user();
+    // A nested session keeps its own display. Grafting the host's keys onto
+    // it would point window and input backends back at the host desktop.
+    if crate::nested_input::enabled() {
+        crate::nested_input::isolate_environment();
+    } else {
+        hydrate_desktop_env_from_process_tree();
+        hydrate_desktop_env_from_systemd_user();
+    }
 
     if env_var("XDG_RUNTIME_DIR").is_none() {
         if let Some(runtime) = xdg_runtime_dir() {
@@ -714,8 +740,26 @@ fn platform_report() -> PlatformReport {
         xdg_runtime_dir: xdg_runtime_dir().map(|path| path.display().to_string()),
         gnome_shell_version: command_check("gnome-shell", &["--version"]),
         gnome_screenshot: command_check("gnome-screenshot", &["--version"]),
+        grim: grim_check(),
         x11_display: x11_display_check(),
     }
+}
+
+/// `grim -h` exits 0 when the binary works. It prints a long usage block, so
+/// report only the first line and keep the doctor output readable.
+fn grim_check() -> Check {
+    let check = command_check("grim", &["-h"]);
+    if !check.ok {
+        return check;
+    }
+    let first_line = check
+        .detail
+        .lines()
+        .next()
+        .unwrap_or("grim is available")
+        .trim()
+        .to_string();
+    Check::ok(first_line)
 }
 
 fn x11_display_check() -> Check {
@@ -870,6 +914,11 @@ fn readiness_report(
 /// capability map and readiness read this list so they cannot disagree.
 fn screenshot_backends(platform: &PlatformReport, portals: &PortalReport) -> Vec<String> {
     let mut backends = Vec::new();
+    // grim runs first in the capture chain. It needs the binary and a Wayland
+    // session. A native X11 session skips it, exactly as the capture code does.
+    if platform.grim.ok && !platform.x11_display.ok && platform.wayland_display.is_some() {
+        backends.push("grim".to_string());
+    }
     if platform.gnome_shell_version.ok {
         backends.push("gnome_shell".to_string());
     }
@@ -1075,12 +1124,8 @@ fn ydotool_socket_check() -> Check {
 }
 
 fn user_id() -> Option<String> {
-    let output = Command::new("id").arg("-u").output().ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|value| !value.is_empty())
+    // SAFETY: getuid has no preconditions and cannot fail.
+    Some(unsafe { libc::getuid() }.to_string())
 }
 
 fn command_path_check(command: &str) -> Check {
@@ -1581,6 +1626,7 @@ mod tests {
             xdg_runtime_dir: Some("/run/user/1000".to_string()),
             gnome_shell_version: Check::ok("GNOME Shell 46.0"),
             gnome_screenshot: Check::ok("gnome-screenshot 41.0"),
+            grim: Check::fail("No such file or directory (os error 2)"),
             x11_display: Check::fail("not a native X11 session"),
         }
     }
@@ -2238,6 +2284,42 @@ mod tests {
         let capabilities = capability_map(&platform, &portals, &accessibility, &windowing, &input);
         assert!(capabilities.screenshot.is_empty());
         assert_eq!(capabilities.preferred.screenshot, None);
+    }
+
+    #[test]
+    fn grim_leads_the_screenshot_routes_on_a_wayland_session() {
+        let mut platform = platform_report();
+        platform.grim = Check::ok("Usage: grim [options...] [output-file]");
+        let mut portals = portal_report(Check::fail("missing"));
+        portals.screenshot = Check::ok(".Screenshot method sa{sv} o -");
+        let accessibility = accessibility_report(Check::ok("bus"), Check::ok("true"));
+        let windowing = windowing_report(true, true);
+        let input = input_report(true);
+
+        let capabilities = capability_map(&platform, &portals, &accessibility, &windowing, &input);
+
+        assert_eq!(
+            capabilities.screenshot,
+            ["grim", "gnome_shell", "portal", "gnome_screenshot"]
+        );
+        assert_eq!(capabilities.preferred.screenshot.as_deref(), Some("grim"));
+    }
+
+    #[test]
+    fn grim_is_not_a_screenshot_route_on_a_native_x11_session() {
+        let mut platform = platform_report();
+        platform.grim = Check::ok("Usage: grim [options...] [output-file]");
+        platform.gnome_shell_version = Check::fail("missing");
+        platform.gnome_screenshot = Check::fail("missing");
+        platform.x11_display = Check::ok("native X11 root window 2880x1920, depth 24");
+        let portals = portal_report(Check::fail("missing"));
+        let accessibility = accessibility_report(Check::ok("bus"), Check::ok("true"));
+        let windowing = windowing_report(true, true);
+        let input = input_report(true);
+
+        let capabilities = capability_map(&platform, &portals, &accessibility, &windowing, &input);
+
+        assert_eq!(capabilities.screenshot, ["x11"]);
     }
 
     #[test]

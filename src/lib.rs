@@ -1,14 +1,17 @@
 mod abs_pointer;
 mod accessibility_guard;
+mod act;
 #[path = "atspi_tree.rs"]
 mod atspi_tree_impl;
 mod cli;
 mod command_runner;
 mod cosmic_helper;
+pub mod desktops;
 #[path = "diagnostics.rs"]
 mod diagnostics_impl;
 mod gnome_extension;
 mod identity;
+pub mod nested_input;
 mod remote_desktop;
 #[path = "screenshot.rs"]
 mod screenshot_impl;
@@ -44,8 +47,8 @@ pub mod diagnostics {
 
 pub mod screenshot {
     pub(crate) use crate::screenshot_impl::{
-        capture_screenshot, prepare_screenshot_payload, ScreenshotCapture, ScreenshotOutputFormat,
-        ScreenshotPayloadOptions,
+        capture_screenshot, crop_capture, prepare_screenshot_payload, ScreenshotCapture,
+        ScreenshotOutputFormat, ScreenshotPayloadOptions,
     };
     pub use crate::screenshot_impl::{capture_screenshot_raw, RawScreenshotCapture};
 }

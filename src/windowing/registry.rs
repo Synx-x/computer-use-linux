@@ -52,6 +52,30 @@ const BACKEND_ORDER: &[BackendKind] = &[
     BackendKind::X11,
 ];
 
+/// Nested mode sees only the nested sway. Every other backend can reach the
+/// host: hyprctl, for one, finds the host instance on its own even with
+/// HYPRLAND_INSTANCE_SIGNATURE unset.
+const NESTED_BACKEND_ORDER: &[BackendKind] = &[BackendKind::I3];
+
+fn backend_order() -> &'static [BackendKind] {
+    if crate::nested_input::enabled() {
+        NESTED_BACKEND_ORDER
+    } else {
+        BACKEND_ORDER
+    }
+}
+
+/// Refuse a window from any backend but sway's in nested mode, so a stale
+/// or forged window id can never focus or move a host window.
+fn ensure_nested_backend(backend: &str) -> Result<()> {
+    if crate::nested_input::enabled() && backend != I3_BACKEND {
+        return Err(anyhow!(
+            "CUL_NESTED=1 allows only the nested sway window backend, not {backend}"
+        ));
+    }
+    Ok(())
+}
+
 const DESCRIPTORS: &[BackendDescriptor] = &[
     BackendDescriptor {
         id: GNOME_SHELL_EXTENSION_BACKEND,
@@ -132,7 +156,7 @@ pub fn backend_can_exact_focus(id: &str) -> bool {
 
 pub async fn list_windows() -> Result<Vec<WindowInfo>> {
     let mut errors = Vec::new();
-    for backend in BACKEND_ORDER {
+    for backend in backend_order() {
         if let Some(windows) =
             usable_backend_windows(*backend, list_windows_for(*backend).await, &mut errors)
         {
@@ -191,6 +215,7 @@ async fn list_windows_for(backend: BackendKind) -> Result<Vec<WindowInfo>> {
 }
 
 pub async fn activate_window(window: &WindowInfo) -> Result<()> {
+    ensure_nested_backend(&window.backend)?;
     match window.backend.as_str() {
         GNOME_SHELL_EXTENSION_BACKEND => gnome::activate_extension_window(window.window_id).await,
         GNOME_SHELL_INTROSPECT_BACKEND => {
@@ -218,6 +243,7 @@ pub async fn activate_window(window: &WindowInfo) -> Result<()> {
 }
 
 pub async fn focused_window_for_backend(backend: &str) -> Result<Option<WindowInfo>> {
+    ensure_nested_backend(backend)?;
     let windows = match backend {
         GNOME_SHELL_EXTENSION_BACKEND => gnome::list_extension_windows().await?,
         GNOME_SHELL_INTROSPECT_BACKEND => gnome::list_introspect_windows().await?,
@@ -236,6 +262,7 @@ pub async fn focused_window_for_backend(backend: &str) -> Result<Option<WindowIn
 }
 
 pub async fn move_window(window: &WindowInfo, x: i32, y: i32) -> Result<String> {
+    ensure_nested_backend(&window.backend)?;
     match window.backend.as_str() {
         GNOME_SHELL_EXTENSION_BACKEND => {
             gnome::move_extension_window(window.window_id, x, y).await
@@ -248,6 +275,7 @@ pub async fn move_window(window: &WindowInfo, x: i32, y: i32) -> Result<String> 
 }
 
 pub async fn resize_window(window: &WindowInfo, width: i32, height: i32) -> Result<String> {
+    ensure_nested_backend(&window.backend)?;
     match window.backend.as_str() {
         GNOME_SHELL_EXTENSION_BACKEND => {
             gnome::resize_extension_window(window.window_id, width, height).await
@@ -260,10 +288,16 @@ pub async fn resize_window(window: &WindowInfo, width: i32, height: i32) -> Resu
 }
 
 pub async fn focused_window_override() -> Option<WindowInfo> {
+    if crate::nested_input::enabled() {
+        return None;
+    }
     cosmic::focused_window().await.ok().flatten()
 }
 
 pub fn probe_backends() -> Vec<BackendProbe> {
+    if crate::nested_input::enabled() {
+        return vec![i3::probe()];
+    }
     vec![
         gnome::probe_extension(),
         gnome::probe_introspect(),

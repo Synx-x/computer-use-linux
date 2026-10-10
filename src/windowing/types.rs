@@ -55,6 +55,10 @@ pub struct WindowFocusResult {
     pub focused_window: Option<WindowInfo>,
     pub exact_window_focused: bool,
     pub app_focused: bool,
+    /// True when the window already had focus before activation, so no
+    /// compositor repaint is pending and settle waits can be skipped.
+    #[serde(default)]
+    pub was_already_focused: bool,
     pub backend: String,
     pub note: String,
 }

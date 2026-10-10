@@ -4,6 +4,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine};
 use futures_util::StreamExt;
 use image::codecs::jpeg::JpegEncoder;
+use image::codecs::png::{CompressionType, PngEncoder};
 use image::imageops::FilterType;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,6 +14,7 @@ use std::{
     io::Cursor,
     path::{Path, PathBuf},
     process::Stdio,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::process::Command;
@@ -37,10 +39,15 @@ const MIN_SCREENSHOT_MAX_BYTES: usize = 1024;
 #[derive(Debug, Clone)]
 pub struct RawScreenshotCapture {
     pub mime_type: String,
+    /// Encoded PNG bytes. Empty when `image` already holds the decoded pixels.
     pub bytes: Vec<u8>,
     pub source: String,
     pub width: u32,
     pub height: u32,
+    /// Decoded pixels, when the backend captured raw frames (grim PPM). Cropping
+    /// and encoding then skip the PNG encode/decode round trips, which cost over
+    /// a second on a multi-monitor desktop.
+    pub image: Option<Arc<image::DynamicImage>>,
 }
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
@@ -145,11 +152,12 @@ impl ScreenshotPayloadOptions {
 }
 
 /// Environment variable forcing a single capture backend, skipping the
-/// fallback chain. Accepts `gnome-shell`, `portal`, `x11`, or `gnome-screenshot`.
+/// fallback chain. Accepts `grim`, `gnome-shell`, `portal`, `x11`, or `gnome-screenshot`.
 const SCREENSHOT_BACKEND_ENV: &str = "COMPUTER_USE_LINUX_SCREENSHOT_BACKEND";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ScreenshotBackend {
+    Grim,
     GnomeShell,
     Portal,
     X11,
@@ -159,6 +167,7 @@ enum ScreenshotBackend {
 impl ScreenshotBackend {
     fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "grim" => Some(Self::Grim),
             "gnome-shell" | "gnome_shell" | "shell" => Some(Self::GnomeShell),
             "portal" | "xdg-portal" | "xdg_portal" => Some(Self::Portal),
             "x11" | "x11-native" | "x11_native" | "xgetimage" => Some(Self::X11),
@@ -169,6 +178,7 @@ impl ScreenshotBackend {
 
     async fn capture(self) -> Result<RawScreenshotCapture> {
         match self {
+            Self::Grim => capture_with_grim().await,
             Self::GnomeShell => capture_with_gnome_shell().await,
             Self::Portal => capture_with_portal().await,
             Self::X11 => capture_with_x11().await,
@@ -180,6 +190,13 @@ impl ScreenshotBackend {
 pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
     hydrate_session_bus_env();
 
+    // Nested mode captures the nested display through grim and nothing else.
+    // Every other backend, a forced one included, can capture the host.
+    if crate::nested_input::enabled() {
+        return capture_with_grim()
+            .await
+            .context("CUL_NESTED=1 captures only through grim on WAYLAND_DISPLAY");
+    }
     // Explicit override: use exactly the requested backend, no fallback. Lets
     // background/systemd contexts pin `gnome-screenshot` when the DBus paths are
     // blocked, and aids debugging.
@@ -187,12 +204,14 @@ pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
         return forced.capture().await;
     }
 
-    // The Shell and portal DBus paths fail for background processes (systemd
-    // user services, non-interactive parent shells): GNOME Shell's
-    // DBusSenderChecker rejects unknown bus names, and the portal cancels with
-    // response code 2 when there is no foreground window. `gnome-screenshot`
-    // claims an allowlisted bus name and works regardless, so it is the final
-    // fallback. See issue #20.
+    // grim first: direct compositor capture on wlroots (Hyprland, Sway). No
+    // portal dialog, no multi-monitor black-frame bug. Fails fast off Wayland.
+    let grim_error = match capture_with_grim().await {
+        Ok(capture) => return Ok(capture),
+        Err(error) => error,
+    };
+    // GNOME Shell and the portal both fail for background or systemd
+    // processes. gnome-screenshot has an allowlisted bus name that works (#20).
     let gnome_error = match capture_with_gnome_shell().await {
         Ok(capture) => return Ok(capture),
         Err(error) => error,
@@ -201,9 +220,8 @@ pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
         Ok(capture) => return Ok(capture),
         Err(error) => error,
     };
-    // Native X11 only, and ahead of gnome-screenshot: gnome-screenshot 41 masks
-    // everything outside the GDK monitor geometry, which is 1/4 of the frame at
-    // window-scaling-factor 2 on MATE (issue #155). GetImage has no GDK layer.
+    // Native X11 first, ahead of gnome-screenshot: gnome-screenshot 41 masks
+    // anything outside the GDK monitor geometry at scale 2 on MATE (#155).
     let x11_error = match capture_with_x11().await {
         Ok(capture) => return Ok(capture),
         Err(error) => error,
@@ -214,7 +232,8 @@ pub async fn capture_screenshot_raw() -> Result<RawScreenshotCapture> {
     };
 
     Err(anyhow!(
-        "GNOME Shell screenshot failed: {gnome_error}; \
+        "grim screenshot failed: {grim_error}; \
+         GNOME Shell screenshot failed: {gnome_error}; \
          XDG portal screenshot failed: {portal_error}; \
          native X11 screenshot failed: {x11_error}; \
          gnome-screenshot fallback failed: {cli_error}"
@@ -239,6 +258,7 @@ async fn capture_with_x11() -> Result<RawScreenshotCapture> {
         source: "x11".to_string(),
         width,
         height,
+        image: None,
     })
 }
 
@@ -258,7 +278,7 @@ fn forced_backend() -> Result<Option<ScreenshotBackend>> {
             ScreenshotBackend::parse(&value).map(Some).ok_or_else(|| {
                 anyhow!(
                     "{SCREENSHOT_BACKEND_ENV}={value:?} is not a recognized backend \
-                     (expected gnome-shell, portal, x11, or gnome-screenshot)"
+                     (expected grim, gnome-shell, portal, x11, or gnome-screenshot)"
                 )
             })
         }
@@ -275,31 +295,36 @@ pub fn prepare_screenshot_payload(
     raw: RawScreenshotCapture,
     options: ScreenshotPayloadOptions,
 ) -> Result<ScreenshotCapture> {
-    if raw.bytes.is_empty() {
-        bail!("screenshot file was empty");
-    }
-    let (coordinate_width, coordinate_height) = png_dimensions(&raw.bytes)?;
-    let original_bytes = raw.bytes.len();
     let options = options.resolve();
-    let (target_width, target_height) =
-        target_dimensions(coordinate_width, coordinate_height, options);
-
-    let (bytes, width, height) = if options.format == ScreenshotOutputFormat::Png
-        && target_width == coordinate_width
-        && target_height == coordinate_height
-        && original_bytes <= options.max_bytes
-    {
-        (raw.bytes, coordinate_width, coordinate_height)
-    } else {
-        encode_screenshot_to_fit_bytes(
-            &raw.bytes,
-            coordinate_width,
-            coordinate_height,
-            target_width,
-            target_height,
-            options,
-        )?
-    };
+    let (bytes, width, height, coordinate_width, coordinate_height, original_bytes) =
+        if let Some(img) = raw.image.as_deref() {
+            // Decoded pixels: encode once, straight to the requested format.
+            let (cw, ch) = (img.width(), img.height());
+            let (tw, th) = target_dimensions(cw, ch, options);
+            let (bytes, w, h) = encode_image_to_fit_bytes(img, None, cw, ch, tw, th, options)?;
+            let original = img.as_bytes().len();
+            (bytes, w, h, cw, ch, original)
+        } else {
+            if raw.bytes.is_empty() {
+                bail!("screenshot file was empty");
+            }
+            let (cw, ch) = png_dimensions(&raw.bytes)?;
+            let original = raw.bytes.len();
+            let (tw, th) = target_dimensions(cw, ch, options);
+            if options.format == ScreenshotOutputFormat::Png
+                && tw == cw
+                && th == ch
+                && original <= options.max_bytes
+            {
+                (raw.bytes, cw, ch, cw, ch, original)
+            } else {
+                let img = image::load_from_memory_with_format(&raw.bytes, image::ImageFormat::Png)
+                    .context("failed to decode screenshot PNG for encoding")?;
+                let (bytes, w, h) =
+                    encode_image_to_fit_bytes(&img, Some(&raw.bytes), cw, ch, tw, th, options)?;
+                (bytes, w, h, cw, ch, original)
+            }
+        };
 
     let encoded = STANDARD.encode(&bytes);
     let scale = if coordinate_width == 0 {
@@ -346,13 +371,13 @@ async fn capture_with_gnome_shell() -> Result<RawScreenshotCapture> {
     let (success, filename_used): (bool, String) = match result {
         Ok(result) => result,
         Err(error) => {
-            cleanup_gnome_requested_path(&path);
+            cleanup_requested_path(&path);
             return Err(error).context("GNOME Shell Screenshot call failed");
         }
     };
 
     if !success {
-        cleanup_gnome_requested_path(&path);
+        cleanup_requested_path(&path);
         bail!("GNOME Shell reported screenshot failure");
     }
 
@@ -413,6 +438,93 @@ async fn capture_with_portal() -> Result<RawScreenshotCapture> {
     read_png_as_capture(path, "xdg-desktop-portal", ScreenshotCleanup::Preserve).await
 }
 
+/// Upper bound on how long we wait for `grim` before killing it. Matches
+/// the other CLI fallback so a hung capture can't block the tool forever.
+const GRIM_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// Full-desktop capture via `grim`, direct from the wlroots compositor.
+/// No portal dialog. Needs a Wayland session and the `grim` binary.
+///
+/// grim writes raw PPM to stdout rather than PNG to a file. PNG compression of
+/// a two-monitor desktop takes grim about a second of CPU; PPM takes ~70 ms.
+/// The frame is decoded once here and kept in `image`, so later crop and resize
+/// steps work on pixels directly.
+async fn capture_with_grim() -> Result<RawScreenshotCapture> {
+    if is_native_x11_session() {
+        bail!("not a Wayland session (grim needs WAYLAND_DISPLAY)");
+    }
+
+    let mut command = Command::new("grim");
+    command
+        .args(["-t", "ppm", "-"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let child = crate::command_runner::spawn_retrying_busy(&mut command)
+        .await
+        .context("failed to spawn grim")?;
+
+    let output = match tokio::time::timeout(GRIM_TIMEOUT, child.wait_with_output()).await {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => return Err(error).context("failed to wait for grim"),
+        Err(_) => bail!("grim timed out"),
+    };
+    if !output.status.success() {
+        bail!("grim exited with {}", output.status);
+    }
+    if output.stdout.is_empty() {
+        bail!("grim produced no image data");
+    }
+
+    let img = tokio::task::spawn_blocking(move || {
+        image::load_from_memory_with_format(&output.stdout, image::ImageFormat::Pnm)
+    })
+    .await
+    .context("grim decoder task failed")?
+    .context("failed to decode grim PPM output")?;
+
+    Ok(RawScreenshotCapture {
+        mime_type: "image/png".to_string(),
+        bytes: Vec::new(),
+        source: "grim".to_string(),
+        width: img.width(),
+        height: img.height(),
+        image: Some(Arc::new(img)),
+    })
+}
+
+/// Crop a capture to a rectangle, keeping decoded pixels when present.
+pub fn crop_capture(
+    raw: RawScreenshotCapture,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> Result<RawScreenshotCapture> {
+    let img = match raw.image {
+        Some(img) => img,
+        None => Arc::new(
+            image::load_from_memory_with_format(&raw.bytes, image::ImageFormat::Png)
+                .context("failed to decode screenshot PNG for cropping")?,
+        ),
+    };
+    let (iw, ih) = (img.width(), img.height());
+    if x >= iw || y >= ih {
+        bail!("crop origin outside image");
+    }
+    let width = width.min(iw - x);
+    let height = height.min(ih - y);
+    let cropped = img.crop_imm(x, y, width, height);
+    Ok(RawScreenshotCapture {
+        mime_type: raw.mime_type,
+        bytes: Vec::new(),
+        source: raw.source,
+        width,
+        height,
+        image: Some(Arc::new(cropped)),
+    })
+}
+
 /// Upper bound on how long we wait for `gnome-screenshot` before killing it.
 /// Matches the portal timeout: a hung capture must not block the tool forever.
 const GNOME_SCREENSHOT_TIMEOUT: Duration = Duration::from_secs(20);
@@ -435,7 +547,7 @@ async fn capture_with_gnome_screenshot() -> Result<RawScreenshotCapture> {
     let mut child = match crate::command_runner::spawn_retrying_busy(&mut command).await {
         Ok(child) => child,
         Err(error) => {
-            cleanup_gnome_requested_path(&path);
+            cleanup_requested_path(&path);
             return Err(error).context("failed to spawn gnome-screenshot");
         }
     };
@@ -445,18 +557,18 @@ async fn capture_with_gnome_screenshot() -> Result<RawScreenshotCapture> {
     let status = match tokio::time::timeout(GNOME_SCREENSHOT_TIMEOUT, child.wait()).await {
         Ok(Ok(status)) => status,
         Ok(Err(error)) => {
-            cleanup_gnome_requested_path(&path);
+            cleanup_requested_path(&path);
             return Err(error).context("failed to wait for gnome-screenshot");
         }
         Err(_) => {
             let _ = child.kill().await;
-            cleanup_gnome_requested_path(&path);
+            cleanup_requested_path(&path);
             bail!("gnome-screenshot timed out");
         }
     };
 
     if !status.success() {
-        cleanup_gnome_requested_path(&path);
+        cleanup_requested_path(&path);
         bail!("gnome-screenshot exited with {status}");
     }
 
@@ -535,6 +647,7 @@ fn read_png_as_capture_inner(path: &Path, source: &str) -> Result<RawScreenshotC
         source: source.to_string(),
         width,
         height,
+        image: None,
     })
 }
 
@@ -555,30 +668,32 @@ fn target_dimensions(
     (target_width, target_height)
 }
 
-fn encode_screenshot_to_fit_bytes(
-    raw: &[u8],
+/// Encode `img`, shrinking until it fits `max_bytes`. `png_passthrough` holds
+/// the already-encoded PNG, reused when the output is an unscaled PNG.
+fn encode_image_to_fit_bytes(
+    img: &image::DynamicImage,
+    png_passthrough: Option<&[u8]>,
     original_width: u32,
     original_height: u32,
     mut target_width: u32,
     mut target_height: u32,
     options: ResolvedScreenshotPayloadOptions,
 ) -> Result<(Vec<u8>, u32, u32)> {
-    let img = image::load_from_memory_with_format(raw, image::ImageFormat::Png)
-        .context("failed to decode screenshot PNG for encoding")?;
-
     loop {
-        let bytes = if options.format == ScreenshotOutputFormat::Png
-            && target_width == original_width
-            && target_height == original_height
+        let unscaled = target_width == original_width && target_height == original_height;
+        let bytes = if let (true, ScreenshotOutputFormat::Png, Some(raw)) =
+            (unscaled, options.format, png_passthrough)
         {
             raw.to_vec()
         } else {
-            let output = if target_width == original_width && target_height == original_height {
-                img.clone()
+            if unscaled {
+                encode_image(img, options)?
             } else {
-                img.resize_exact(target_width, target_height, FilterType::Lanczos3)
-            };
-            encode_image(&output, options)?
+                encode_image(
+                    &img.resize_exact(target_width, target_height, FilterType::Lanczos3),
+                    options,
+                )?
+            }
         };
 
         if bytes.len() <= options.max_bytes {
@@ -609,7 +724,14 @@ fn encode_image(
     let mut out = Vec::new();
     match options.format {
         ScreenshotOutputFormat::Png => {
-            img.write_to(&mut Cursor::new(&mut out), image::ImageFormat::Png)
+            // Fast compression: a few percent larger than the default, several
+            // times quicker, and the byte cap still bounds the payload.
+            let encoder = PngEncoder::new_with_quality(
+                &mut out,
+                CompressionType::Fast,
+                image::codecs::png::FilterType::Adaptive,
+            );
+            img.write_with_encoder(encoder)
                 .context("failed to encode screenshot PNG")?;
         }
         ScreenshotOutputFormat::Jpeg => {
@@ -642,7 +764,7 @@ fn next_dimensions_for_byte_cap(
     (next_width, next_height)
 }
 
-fn cleanup_gnome_requested_path(path: &Path) {
+fn cleanup_requested_path(path: &Path) {
     let _ = fs::remove_file(path);
 }
 
@@ -762,6 +884,7 @@ mod tests {
             source: "test".to_string(),
             width,
             height,
+            image: None,
         }
     }
 
@@ -775,6 +898,14 @@ mod tests {
 
     #[test]
     fn parses_known_backend_names() {
+        assert_eq!(
+            ScreenshotBackend::parse("grim"),
+            Some(ScreenshotBackend::Grim)
+        );
+        assert_eq!(
+            ScreenshotBackend::parse(" GRIM "),
+            Some(ScreenshotBackend::Grim)
+        );
         assert_eq!(
             ScreenshotBackend::parse("gnome-shell"),
             Some(ScreenshotBackend::GnomeShell)
@@ -993,7 +1124,7 @@ mod tests {
         let path = test_path("gnome-pre-read-failure");
         fs::write(&path, b"partial").unwrap();
 
-        cleanup_gnome_requested_path(&path);
+        cleanup_requested_path(&path);
 
         assert!(!path.exists());
     }

@@ -7,11 +7,368 @@ export interface GeneratedMcpToolDefinition {
 	annotations: Record<string, unknown>;
 }
 
-export const GENERATED_SERVER_VERSION = "0.7.2";
-export const GENERATED_TOOL_CATALOG_HASH = "a28811e528ada60c60d5e493d3680249428a65037cbd741ab0efa4711dd91837";
-export const GENERATED_SHELL_TOOL_CATALOG_HASH = "3e5700e7be824d965170c202204cb512ee41b7162088050a8d7f479d617d15d3";
+export const GENERATED_SERVER_VERSION = "0.8.0";
+export const GENERATED_TOOL_CATALOG_HASH = "8017070737930651b3ef648e6888299aeacb02c052668dfbb6c2be0702a68856";
+export const GENERATED_SHELL_TOOL_CATALOG_HASH = "c2069ec4333093120839c94ca0a14ad31843b69d674e17fd9937498f074f7d8c";
 export const GENERATED_MCP_TOOLS =
 [
+  {
+    "annotations": {
+      "destructiveHint": false,
+      "idempotentHint": false,
+      "openWorldHint": true,
+      "readOnlyHint": false
+    },
+    "description": "Act and verify in one call. Look first with steps=[] and observe=\"full\". Then batch a whole sub-task, such as [click menu, click_text \"Save\"], and read steps[].ok and window.title. Coordinates are window-relative: image pixels / image.scale + image.crop origin. wait {ms} is a cap that ends when the window goes quiet. click_text clicks a visible label, pressing a button through the accessibility tree when it can. Enforced: a batch returns only the changed area, expects a change, and after a failed check input is refused until you look again. Optional: marks=true on a look numbers targets for click {mark: N}, and zoom {x,y,width,height} returns one region at full resolution.",
+    "inputSchema": {
+      "$defs": {
+        "ActStep": {
+          "description": "One input step inside an `act` batch.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "Click window-relative coordinates, a saved landmark by name, or a\nnumbered mark from the last look with marks.",
+              "properties": {
+                "click": {
+                  "properties": {
+                    "button": {
+                      "default": null,
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "click_count": {
+                      "default": null,
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "landmark": {
+                      "default": null,
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "mark": {
+                      "default": null,
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "x": {
+                      "default": null,
+                      "format": "int32",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "y": {
+                      "default": null,
+                      "format": "int32",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "click"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Click visible text, read from the screen. By default it searches only\nwhat changed during this batch (a menu or dialog the batch opened),\nfalling back to the whole window when nothing changed.",
+              "properties": {
+                "click_text": {
+                  "properties": {
+                    "nth": {
+                      "default": null,
+                      "description": "Which match to click when the text appears more than once (1-based).",
+                      "minimum": 0,
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "scope": {
+                      "default": null,
+                      "description": "\"new\" (default) searches what changed in this batch, \"window\" everything.",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "click_text"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Press a key or chord, same grammar as press_key.",
+              "properties": {
+                "key": {
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "key"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "key"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Type literal text.",
+              "properties": {
+                "type": {
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "text"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Scroll at window-relative coordinates, or the window centre.",
+              "properties": {
+                "scroll": {
+                  "properties": {
+                    "direction": {
+                      "type": "string"
+                    },
+                    "pages": {
+                      "default": null,
+                      "format": "double",
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    },
+                    "x": {
+                      "default": null,
+                      "format": "int32",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    },
+                    "y": {
+                      "default": null,
+                      "format": "int32",
+                      "type": [
+                        "integer",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "direction"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "scroll"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Wait up to `ms` for the window to go quiet, for example while a page\nloads. Returns early once two frames in a row match. `exact` pauses\nfor the full time instead.",
+              "properties": {
+                "wait": {
+                  "properties": {
+                    "exact": {
+                      "default": null,
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "ms": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "ms"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "wait"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Remember the window-relative point as a named landmark for this app.",
+              "properties": {
+                "save_landmark": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "x": {
+                      "format": "int32",
+                      "type": "integer"
+                    },
+                    "y": {
+                      "format": "int32",
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "x",
+                    "y"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "save_landmark"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "ZoomRect": {
+          "properties": {
+            "height": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "width": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "x": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "y": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        }
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "expect": {
+          "default": null,
+          "description": "Optional prediction checked after the steps: \"change\" or \"no_change\".",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "marks": {
+          "default": null,
+          "description": "With steps=[]: also list numbered targets (buttons from the\naccessibility tree, lines of text read from the screen). Click one with\nclick {mark: N}.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "observe": {
+          "default": null,
+          "description": "What to return after the steps: \"delta\" (default) crops only the\nchanged area, \"full\" returns the whole window, \"none\" returns no image.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "settle_ms": {
+          "default": null,
+          "description": "Wait before the after-capture, in ms (default 150, max 5000).",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "steps": {
+          "description": "Steps run in order; the batch stops at the first failure.",
+          "items": {
+            "$ref": "#/$defs/ActStep"
+          },
+          "type": "array"
+        },
+        "window_id": {
+          "description": "Compositor window id. Every step targets this window.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "zoom": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ZoomRect"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "With steps=[]: return this window-relative region at full resolution."
+        }
+      },
+      "required": [
+        "window_id",
+        "steps"
+      ],
+      "type": "object"
+    },
+    "name": "act"
+  },
   {
     "annotations": {
       "destructiveHint": false,
