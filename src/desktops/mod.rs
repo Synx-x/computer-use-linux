@@ -255,6 +255,8 @@ fn error(status: StatusCode, message: impl Into<String>) -> Response {
     (status, Json(json!({"error": message.into()}))).into_response()
 }
 
+// Handlers return the error response as-is, so it is not worth boxing.
+#[allow(clippy::result_large_err)]
 async fn lookup(app: &App, id: &str) -> Result<Arc<Desktop>, Response> {
     app.desktops
         .lock()

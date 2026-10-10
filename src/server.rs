@@ -3458,6 +3458,7 @@ impl ComputerUseLinux {
 
     /// Run one `act` step through the existing input tools. Returns a short
     /// label and Ok(message) or Err(reason).
+    #[allow(clippy::too_many_arguments)]
     async fn run_act_step(
         &self,
         step: &ActStep,

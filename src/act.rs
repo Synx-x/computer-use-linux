@@ -231,7 +231,7 @@ pub fn landmark_hash(frame: &DynamicImage, x: u32, y: u32) -> Option<String> {
 
 /// Number of differing bits between two hashes, or None if they don't parse.
 pub fn hash_distance(a: &str, b: &str) -> Option<u32> {
-    if a.len() != b.len() || a.len() % 2 != 0 {
+    if a.len() != b.len() || !a.len().is_multiple_of(2) {
         return None;
     }
     let mut distance = 0;
