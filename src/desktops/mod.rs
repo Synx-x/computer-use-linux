@@ -8,6 +8,7 @@
 pub mod agent;
 pub mod desktop;
 pub mod keylock;
+pub mod mcp;
 pub mod rfb;
 mod web;
 
@@ -94,11 +95,19 @@ pub async fn run(args: &[String]) -> Result<()> {
     match args.first().map(String::as_str) {
         Some("serve") => serve(parse_serve(&args[1..])?).await,
         Some("install-unit") => install_unit(&args[1..]),
+        Some("install") => install(&args[1..]).await,
+        Some("uninstall") => uninstall().await,
+        Some("open") => open_viewer(&args[1..]),
+        Some("mcp") => mcp::serve(&args[1..]).await,
         _ => {
             println!(
-                "Usage:\n  computer-use-linux desktops serve [--port {DEFAULT_PORT}] \
-                 [--max {DEFAULT_MAX_DESKTOPS}] [--web-dir DIR]\n  \
-                 computer-use-linux desktops install-unit [serve options]"
+                "Usage:\n  computer-use-linux desktops install [serve options]   \
+                 set up the service, the app launcher and print the MCP command\n  \
+                 computer-use-linux desktops uninstall\n  \
+                 computer-use-linux desktops open [--port {DEFAULT_PORT}]      open the viewer\n  \
+                 computer-use-linux desktops mcp [--port {DEFAULT_PORT}]       MCP server for orchestrating agents\n  \
+                 computer-use-linux desktops serve [--port {DEFAULT_PORT}] [--max {DEFAULT_MAX_DESKTOPS}] [--web-dir DIR]\n  \
+                 computer-use-linux desktops install-unit [serve options]   write the unit only"
             );
             Ok(())
         }
@@ -149,6 +158,105 @@ fn install_unit(serve_args: &[String]) -> Result<()> {
     std::fs::write(&path, unit_text(&exe, serve_args)).context("write the unit")?;
     println!("Wrote {}", path.display());
     println!("Start it with: systemctl --user daemon-reload && systemctl --user enable --now {UNIT_NAME}");
+    Ok(())
+}
+
+const LAUNCHER: &str = "agent-desktops.desktop";
+
+fn data_dir() -> Result<PathBuf> {
+    std::env::var_os("XDG_DATA_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".local/share")))
+        .ok_or_else(|| anyhow!("neither XDG_DATA_HOME nor HOME is set"))
+}
+
+/// Set agent desktops up for this user: the service, enabled and started, an app
+/// launcher that opens the viewer, and the MCP command to give orchestrating agents.
+async fn install(serve_args: &[String]) -> Result<()> {
+    let options = parse_serve(serve_args)?;
+    install_unit(serve_args)?;
+    let exe = std::env::current_exe().context("find this executable")?;
+    let apps = data_dir()?.join("applications");
+    std::fs::create_dir_all(&apps).context("create the applications directory")?;
+    let launcher = apps.join(LAUNCHER);
+    std::fs::write(
+        &launcher,
+        format!(
+            "[Desktop Entry]\nType=Application\nName=Agent Desktops\n\
+             Comment=Watch and take over your agents' hidden desktops\n\
+             Exec={} desktops open --port {}\nIcon=computer\nTerminal=false\n\
+             Categories=Development;Utility;\nKeywords=agent;claude;desktop;sway;\n",
+            exe.display(),
+            options.port
+        ),
+    )
+    .context("write the app launcher")?;
+    println!("Wrote {}", launcher.display());
+    for args in [
+        vec!["--user", "daemon-reload"],
+        vec!["--user", "enable", "--now", UNIT_NAME],
+    ] {
+        let status = tokio::process::Command::new("systemctl")
+            .args(&args)
+            .status()
+            .await
+            .context("run systemctl")?;
+        if !status.success() {
+            bail!("systemctl {} failed", args.join(" "));
+        }
+    }
+    println!(
+        "\nAgent desktops is running at http://127.0.0.1:{}",
+        options.port
+    );
+    println!("Open it any time from your app menu (\"Agent Desktops\") or with `computer-use-linux desktops open`.");
+    println!("Chromium-based browsers can install it as an app from the address bar.");
+    println!(
+        "\nGive an orchestrating agent the MCP server, for example Claude Code:\n  claude mcp add --scope user agent-desktops -- {} desktops mcp --port {}",
+        exe.display(),
+        options.port
+    );
+    Ok(())
+}
+
+/// Stop and remove the service and the launcher.
+async fn uninstall() -> Result<()> {
+    let _ = tokio::process::Command::new("systemctl")
+        .args(["--user", "disable", "--now", UNIT_NAME])
+        .status()
+        .await;
+    let config = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))
+        .ok_or_else(|| anyhow!("neither XDG_CONFIG_HOME nor HOME is set"))?;
+    for path in [
+        config.join("systemd/user").join(UNIT_NAME),
+        data_dir()?.join("applications").join(LAUNCHER),
+    ] {
+        if std::fs::remove_file(&path).is_ok() {
+            println!("Removed {}", path.display());
+        }
+    }
+    let _ = tokio::process::Command::new("systemctl")
+        .args(["--user", "daemon-reload"])
+        .status()
+        .await;
+    Ok(())
+}
+
+/// Open the viewer in the default browser.
+fn open_viewer(args: &[String]) -> Result<()> {
+    let port = match args {
+        [flag, value] if flag == "--port" => value.parse().context("bad --port")?,
+        [] => DEFAULT_PORT,
+        _ => bail!("usage: desktops open [--port N]"),
+    };
+    let url = format!("http://127.0.0.1:{port}/");
+    std::process::Command::new("xdg-open")
+        .arg(&url)
+        .spawn()
+        .with_context(|| format!("open {url}"))?;
+    println!("{url}");
     Ok(())
 }
 

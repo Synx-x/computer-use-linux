@@ -236,7 +236,11 @@ fn sandbox_prefix(desktop: &Desktop, cwd: &Path) -> Option<String> {
             args.push(format!("--bind {p} {p}", p = q(&path)));
         }
     }
-    Some(format!("{} {} --", q(&bwrap.to_string_lossy()), args.join(" ")))
+    Some(format!(
+        "{} {} --",
+        q(&bwrap.to_string_lossy()),
+        args.join(" ")
+    ))
 }
 
 fn which(program: &str) -> Option<PathBuf> {
