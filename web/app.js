@@ -253,6 +253,7 @@ function buildFocus() {
   const h1 = el('h1'); h1.id = 'f-name';
   const stt = el('div', 'state'); stt.id = 'f-state';
   const mode = el('span', 'mode'); mode.id = 'f-mode';
+  mode.setAttribute('role', 'status');
   info.append(h1, stt, sub, mode);
   const seg = el('div', 'seg glass');
   seg.setAttribute('role', 'group');
@@ -267,12 +268,8 @@ function buildFocus() {
   acts.append(assign, shot, stop, seg);
   head.append(info, acts);
 
-  const banner = el('div', 'banner');
-  banner.id = 'banner';
-  banner.setAttribute('role', 'status');
-  banner.append(el('span', '', "You're driving. The agent is paused."), btn('', 'Hand back', () => handBack(f.id)));
 
-  stage.append(head, banner);
+  stage.append(head);
 
   const rail = el('aside', 'rail');
   rail.setAttribute('aria-label', 'Other desktops and agent actions');
@@ -291,7 +288,6 @@ function updateStage(f) {
   const dr = driving(f);
   const stage = $('#stage');
   stage.classList.toggle('driving', dr);
-  $('#banner').hidden = !dr;
   $('#f-sub').textContent = `${f.display} · ${f.compositor} · ${f.res}`;
   $('#f-name').textContent = f.name;
   const stt = $('#f-state');
