@@ -20,6 +20,98 @@ computer-use-linux doctor | jq .readiness
 
 The Rust crate is published as [`computer-use-linux`](https://crates.io/crates/computer-use-linux) and the npm wrapper as [`@agent-sh/computer-use-linux`](https://www.npmjs.com/package/@agent-sh/computer-use-linux). Prebuilt binaries ship with the [latest release](https://github.com/agent-sh/computer-use-linux/releases/latest).
 
+## Agent desktops
+
+Agent desktops give every AI agent its own hidden desktop on your Linux machine. Each agent works on its own screen, in its own sandbox, while your cursor and keyboard stay yours. You watch every agent from a web app, and you can take over any desktop at any moment.
+
+![The wall: every agent desktop as a live tile](docs/shots/readme/02-wall.jpg)
+
+### Install
+
+Agent desktops need `sway`, `wayvnc`, `grim`, `bwrap`, [`herdr`](https://herdr.dev) and Claude Code on `PATH`. On Arch:
+
+```bash
+sudo pacman -S sway wayvnc grim bubblewrap
+```
+
+Download the binary from the [latest release](https://github.com/Synx-x/computer-use-linux/releases/latest), put it on your `PATH`, then run one command:
+
+```bash
+computer-use-linux desktops install
+```
+
+The command does three things:
+
+1. It installs the daemon as a systemd user service, enables it and starts it on `127.0.0.1:7420`.
+2. It adds **Agent Desktops** to your app menu.
+3. It prints the MCP command for your orchestrating agent.
+
+The web app installs as an app from any Chromium-based browser. You can also open it at any time with `computer-use-linux desktops open`.
+
+### Give your agent the MCP server
+
+With the `desktops mcp` server, an agent hands work to agent desktops. Each desktop gets a full, self-contained task, so the work runs in parallel or apart from your own session. For Claude Code:
+
+```bash
+claude mcp add --scope user agent-desktops -- computer-use-linux desktops mcp
+```
+
+| Tool | Use |
+| --- | --- |
+| `start_task` | Create a desktop and start a sandboxed agent on it with a prompt |
+| `list_desktops` | Every desktop with its status, task and last action |
+| `wait_for_desktop` | Wait until an agent goes idle or needs a person |
+| `desktop_status` | One desktop's status and recent actions |
+| `desktop_screenshot` | A small screenshot of a desktop |
+| `create_desktop`, `assign_task` | Create an empty desktop, then give it work |
+| `stop_desktop` | End the agent, its apps and the desktop |
+
+### Walkthrough
+
+**Wall.** Every desktop shows as a live thumbnail with its status: Running, Needs you or Idle. Pick a tile to focus it.
+
+**Focus.** One desktop streams live, view-only. The agent's actions scroll in the side panel. Drag the divider to resize the panel.
+
+![Focus on a working agent](docs/shots/readme/03-focus-watch.jpg)
+
+**Take over.** Take over pauses the agent and passes your mouse and keys to its desktop. The amber frame shows that you are driving. Watch hands control back, and the agent continues.
+
+![Take over](docs/shots/readme/04-take-over.jpg)
+
+**Key lock.** During take over, the padlock sends every key to the desktop, Hyprland binds included. A tap of Right Ctrl alone gives the keys back.
+
+![Keys locked to the desktop](docs/shots/readme/05-keys-locked.jpg)
+
+**Fullscreen.** Fullscreen shows the desktop alone. The lock and fullscreen buttons float in a corner and fade until you reach them.
+
+![Fullscreen](docs/shots/readme/06-fullscreen.jpg)
+
+**New desktop and Assign agent.** New desktop starts an empty desktop at the size you pick. Assign agent gives it a task prompt.
+
+<p>
+  <img src="docs/shots/readme/08-new-desktop.jpg" width="49%" alt="New desktop">
+  <img src="docs/shots/readme/09-assign.jpg" width="49%" alt="Assign an agent">
+</p>
+
+**Settings.** Settings choose how much glass covers the sky, whether the sky moves, and which sky imagery shows.
+
+![Settings](docs/shots/readme/07-settings.jpg)
+
+**Phone.** On a narrow screen the tiles stack, and the side panel moves under the live view.
+
+<img src="docs/shots/readme/10-phone.jpg" width="320" alt="The wall on a phone">
+
+### Isolation
+
+Agents run with bypass permissions, so each agent runs inside a bubblewrap sandbox:
+
+- The filesystem is read-only, except the agent's own folder, `~/.claude` and a scratch cache.
+- The host Wayland and Hyprland sockets, the session bus, `/dev/uinput`, the ydotool socket and the herdr socket are hidden.
+- The agent sees only its own desktop's Wayland and sway sockets.
+- The agent's computer-use tools act on its own desktop only.
+
+`CUL_DESKTOPS_SANDBOX=off` turns the sandbox off. [docs/agent-desktops.md](docs/agent-desktops.md) covers the design, the API and how to run the daemon.
+
 ## What this is
 
 `computer-use-linux` is a Rust MCP server and CLI for Linux desktop control. The crate ships the main `computer-use-linux` binary plus a small `computer-use-linux-cosmic` helper used only for COSMIC Wayland window management. Any MCP host — Codex Desktop's Linux build, Claude Desktop, [Hermes Agent](https://github.com/NousResearch/hermes-agent), or your own client — can spawn it and gain full control of the local Linux desktop: read accessibility trees, list and focus windows, take screenshots, click, drag, scroll, type, and invoke semantic accessibility actions.

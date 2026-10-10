@@ -63,6 +63,9 @@ Settings hold two theme options: Glass, for how much sky shows through the panel
 - **Windows and accessibility.** Nested mode allows only the sway window backend. Its AT-SPI tools refuse apps whose process lacks the desktop's `WAYLAND_DISPLAY` and `SWAYSOCK`.
 - **View-only.** The daemon's VNC proxy reads every RFB message from the browser. While the agent drives, it drops key, pointer and clipboard messages. The browser's own view-only flag is a convenience only.
 - **Processes.** Each sway and wayvnc runs in its own process group with a cleared environment. Stop kills the whole group.
+- **Shell.** Each agent runs inside a bubblewrap sandbox. The filesystem is read-only, except the agent's own folder, `~/.claude` and a scratch `~/.cache`. The sandbox replaces `/dev`, `/tmp` and the runtime directory. That hides the host Wayland and Hyprland sockets, the session bus, `/dev/uinput` and the ydotool socket. The herdr socket is hidden too, because it can run commands in any pane. Only the desktop's own Wayland and sway sockets come back. `CUL_DESKTOPS_SANDBOX=off` turns the sandbox off.
+
+A live agent checked the sandbox on 2026-10-10. Its own screenshot and `foot` worked. `hyprctl` could not reach Hyprland, a write to the repository failed with "Read-only file system", and `/dev/uinput` was missing.
 
 [nested-input.md](nested-input.md) has the input design. [lane-core.md](lane-core.md) has every daemon decision and its evidence.
 
@@ -88,7 +91,24 @@ All routes live on the daemon's port.
 - **Runtime files.** Each desktop lives in `$XDG_RUNTIME_DIR/agent-desktops-<port>/<id>/`. Agent working folders live in `~/.local/share/agent-desktops/<name>`.
 - **Orphans.** On start, the daemon kills any sway or wayvnc left in its runtime folder by an earlier run.
 - **Stop.** Ctrl-C or SIGTERM stops every desktop and closes every agent tab.
-- **Service.** `desktops install-unit` writes `~/.config/systemd/user/agent-desktops.service` and does not enable it. The unit runs the binary that wrote it, so write it from the build you want to keep. Enable it with `systemctl --user daemon-reload && systemctl --user enable --now agent-desktops.service`.
+- **Install.** `desktops install` writes `~/.config/systemd/user/agent-desktops.service`, enables it and starts it. It also writes the **Agent Desktops** app launcher to `~/.local/share/applications/` and prints the MCP command. The unit runs the binary that wrote it, so run `install` from the build you want to keep. `desktops uninstall` removes the unit and the launcher.
+- **Unit only.** `desktops install-unit` writes the unit and does not enable it.
+
+## The orchestration MCP server
+
+`computer-use-linux desktops mcp` is an MCP server over stdio for an agent that hands out work. It calls the daemon's local API, so the daemon must be running. `--port` or `CUL_DESKTOPS_PORT` picks the daemon.
+
+| Tool | Use |
+| --- | --- |
+| `start_task` | Create a desktop and start a sandboxed agent with a prompt |
+| `list_desktops` | Every desktop with its status, task and last action |
+| `wait_for_desktop` | Wait until an agent goes idle or needs a person |
+| `desktop_status` | One desktop's status and recent actions |
+| `desktop_screenshot` | A small WebP screenshot of one desktop |
+| `create_desktop`, `assign_task` | Create an empty desktop, then give it work |
+| `stop_desktop` | End the agent, its apps and the desktop |
+
+Register it with Claude Code: `claude mcp add --scope user agent-desktops -- computer-use-linux desktops mcp`.
 
 ## Known limits
 
