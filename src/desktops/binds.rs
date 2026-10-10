@@ -34,6 +34,96 @@ const HOST_ONLY: &[&str] = &[
     "killall",
 ];
 
+/// The sway config lines that give the desktop the host's window look: gaps,
+/// border width and colours, and rounding when the sway is SwayFX. Falls back to
+/// a padded, bordered default when Hyprland cannot answer.
+pub fn sway_look() -> String {
+    let get = |option: &str| -> Option<Value> {
+        let output = std::process::Command::new("hyprctl")
+            .args(["getoption", option, "-j"])
+            .output()
+            .ok()?;
+        output
+            .status
+            .success()
+            .then(|| serde_json::from_slice(&output.stdout).ok())
+            .flatten()
+    };
+    let first_int = |value: &Option<Value>, fallback: i64| -> i64 {
+        value
+            .as_ref()
+            .and_then(|v| {
+                v["int"].as_i64().or_else(|| {
+                    v["custom"]
+                        .as_str()?
+                        .split_whitespace()
+                        .next()?
+                        .parse()
+                        .ok()
+                })
+            })
+            .unwrap_or(fallback)
+    };
+    let colour = |value: &Option<Value>, fallback: &str| -> String {
+        value
+            .as_ref()
+            .and_then(|v| v["custom"].as_str())
+            .and_then(|text| text.split_whitespace().next())
+            .and_then(argb_to_hex)
+            .unwrap_or_else(|| fallback.to_string())
+    };
+    let gaps_in = first_int(&get("general:gaps_in"), 4).max(0);
+    let gaps_out = first_int(&get("general:gaps_out"), 8).max(0);
+    let border = first_int(&get("general:border_size"), 2).max(1);
+    let rounding = first_int(&get("decoration:rounding"), 8).max(0);
+    let active = colour(&get("general:col.active_border"), "#B2FF66");
+    let inactive = colour(&get("general:col.inactive_border"), "#3A3846");
+    let mut out = format!(
+        "default_border pixel {border}\n\
+         default_floating_border pixel {border}\n\
+         gaps inner {}\n\
+         gaps outer {gaps_out}\n\
+         smart_borders off\n\
+         client.focused {active} {active} #ffffff {active} {active}\n\
+         client.focused_inactive {inactive} {inactive} #cccccc {inactive} {inactive}\n\
+         client.unfocused {inactive} {inactive} #cccccc {inactive} {inactive}\n",
+        gaps_in * 2
+    );
+    if is_swayfx() {
+        let _ = writeln!(out, "corner_radius {rounding}");
+    }
+    out
+}
+
+/// SwayFX adds rounding and other effects; plain sway rejects those commands.
+fn is_swayfx() -> bool {
+    std::process::Command::new("sway")
+        .arg("--version")
+        .output()
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .to_lowercase()
+                .contains("swayfx")
+        })
+        .unwrap_or(false)
+}
+
+/// Hyprland colours are AARRGGBB hex, sometimes with a `0x` or `rgba(` wrapper.
+fn argb_to_hex(text: &str) -> Option<String> {
+    let hex: String = text
+        .trim_start_matches("rgba(")
+        .trim_start_matches("0x")
+        .trim_end_matches(')')
+        .chars()
+        .filter(|c| c.is_ascii_hexdigit())
+        .collect();
+    match hex.len() {
+        8 => Some(format!("#{}", &hex[2..])),
+        6 => Some(format!("#{hex}")),
+        _ => None,
+    }
+}
+
 /// The sway config lines for this desktop's binds. Exec scripts go in `dir`.
 pub fn sway_binds(dir: &Path) -> String {
     let mode = std::env::var("CUL_DESKTOP_BINDS").unwrap_or_default();
@@ -211,6 +301,14 @@ fn sway_keys(modmask: u64, key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hyprland_colours_become_sway_hex() {
+        assert_eq!(argb_to_hex("ffeeb7d1").as_deref(), Some("#eeb7d1"));
+        assert_eq!(argb_to_hex("0xff5b5356").as_deref(), Some("#5b5356"));
+        assert_eq!(argb_to_hex("rgba(33ccffee)").as_deref(), Some("#ccffee"));
+        assert_eq!(argb_to_hex("oops"), None);
+    }
 
     #[test]
     fn super_a_becomes_fullscreen() {
