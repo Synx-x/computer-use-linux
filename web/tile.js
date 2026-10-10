@@ -81,7 +81,7 @@ class DesktopTile extends HTMLElement {
         hit.append(shot, fb);
       }
     }
-    if (mock ? d.status === 'idle' : !d.pane) hit.append(el('span', 'idle-note', 'Waiting for an agent'));
+    if (mock ? d.status === 'idle' : !d.pane && !d.windowTitle) hit.append(el('span', 'idle-note', 'Waiting for an agent'));
     this.append(hit);
 
     const tl = el('div', 'tl');
