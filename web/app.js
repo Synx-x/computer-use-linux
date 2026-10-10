@@ -267,6 +267,7 @@ function updateStage(f) {
     connectVnc(f, stage);
     // An empty desktop streams as plain black, so say what it is and what to do.
     const note = stage.querySelector('.empty-note');
+    stage.classList.toggle('empty', unassigned);
     if (unassigned && !note) stage.append(el('div', 'empty-note', 'Empty desktop · assign an agent to start'));
     else if (!unassigned) note?.remove();
     if (rfb) rfb.viewOnly = !dr;
