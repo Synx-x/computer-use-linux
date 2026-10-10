@@ -319,7 +319,10 @@ def main(argv):
 
 
 def ipc_reply(request):
-    """Answer one Hyprland socket request, such as `j/monitors` or `[[BATCH]]a;b`."""
+    """Answer one Hyprland socket request, such as `j/monitors` or `[[BATCH]]a;b`.
+
+    Replies are captured by swapping sys.stdout, which is process-wide, so callers
+    hold IPC_LOCK: Quickshell sends several requests at once on connect."""
     import contextlib
     import io
     parts = request[len("[[BATCH]]"):].split(";") if request.startswith("[[BATCH]]") else [request]
@@ -349,6 +352,8 @@ def ipc_reply(request):
 def serve(signature):
     import socket
     import threading
+    global IPC_LOCK
+    IPC_LOCK = threading.Lock()
     base = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "hypr", signature)
     os.makedirs(base, exist_ok=True)
     requests_path, events_path = os.path.join(base, ".socket.sock"), os.path.join(base, ".socket2.sock")
@@ -375,9 +380,11 @@ def serve(signature):
                     if len(chunk) < 65536:
                         break
                 try:
-                    reply = ipc_reply(data.rstrip(b"\0").decode(errors="replace").strip())
+                    with IPC_LOCK:
+                        reply = ipc_reply(data.rstrip(b"\0").decode(errors="replace").strip())
                 except Exception as error:  # a reply always goes back, so a client never hangs
                     reply = f"error: {error}"
+                reply = reply or "ok"
                 conn.sendall(reply.encode())
             except OSError:
                 pass
