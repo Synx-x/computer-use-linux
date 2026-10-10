@@ -24,7 +24,9 @@ The Rust crate is published as [`computer-use-linux`](https://crates.io/crates/c
 
 Agent desktops give every AI agent its own hidden desktop on your Linux machine. Each agent works on its own screen, in its own sandbox, while your cursor and keyboard stay yours. You watch every agent from a web app, and you can take over any desktop at any moment.
 
-![The wall: every agent desktop as a live tile](docs/shots/readme/02-wall.jpg)
+![The wall: an agent desktop running the Caelestia shell, with Firefox on hyprland.org](docs/shots/readme/01-hero-wall.jpg)
+
+![Focus: the same desktop streaming live, with the agent's actions beside it](docs/shots/readme/01-hero-focus.jpg)
 
 ### Install
 
@@ -69,6 +71,8 @@ claude mcp add --scope user agent-desktops -- computer-use-linux desktops mcp
 ### Walkthrough
 
 **Wall.** Every desktop shows as a live thumbnail with its status: Running, Needs you or Idle. Pick a tile to focus it.
+
+![The wall with a running agent, an idle agent and an empty desktop](docs/shots/readme/02-wall.jpg)
 
 **Focus.** One desktop streams live, view-only. The agent's actions scroll in the side panel. Drag the divider to resize the panel.
 
