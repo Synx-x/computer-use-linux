@@ -28,6 +28,7 @@ EXPECTED_TOOLS = {
     "move_window",
     "resize_window",
     "click",
+    "act",
     "drag",
     "scroll",
     "press_key",
