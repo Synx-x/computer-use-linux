@@ -130,6 +130,7 @@ function render() {
   const page = state.view + ':' + (state.view === 'focus' ? state.focusId : '');
   if (skyWas.page !== null && page !== skyWas.page) skyMove(state.view === 'wall' ? 'expand' : skyWas.page.startsWith('wall') ? 'zoom' : 'shift');
   skyWas.page = page;
+  if (lockedId && (state.view !== 'focus' || state.focusId !== lockedId)) releaseLock('left');
   const live = state.desktops.filter((d) => d.status !== 'idle').length;
   const needs = state.desktops.filter((d) => d.status === 'needs').length;
   $('#live-n').textContent = live;
@@ -275,7 +276,16 @@ function buildFocus() {
   head.append(info, acts);
 
 
-  stage.append(head);
+  // Take over tools over the live view: the key passthrough lock and fullscreen.
+  const tools = el('div', 'lockbar');
+  const lk = el('button', 'lk'); lk.type = 'button'; lk.id = 'b-lock';
+  lk.addEventListener('click', () => toggleLock(f.id));
+  const fs = el('button', 'lk fs'); fs.type = 'button'; fs.id = 'b-fs';
+  fs.setAttribute('aria-label', 'Fullscreen live view');
+  fs.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>';
+  fs.addEventListener('click', toggleFullscreen);
+  tools.append(lk, fs);
+  stage.append(head, tools);
 
   const rail = el('aside', 'rail');
   rail.setAttribute('aria-label', 'Other desktops and agent actions');
@@ -305,6 +315,18 @@ function updateStage(f) {
   $('#b-drive').setAttribute('aria-pressed', String(dr));
   $('#f-mode').textContent = dr ? 'You are driving · agent paused' : 'Watching · read-only';
   $('#f-mode').classList.toggle('drive', dr);
+  const locked = dr && f.locked;
+  stage.classList.toggle('locked', locked);
+  const lk = $('#b-lock');
+  lk.setAttribute('aria-pressed', String(locked));
+  lk.innerHTML = locked
+    ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Keys locked</span><kbd>Right Ctrl</kbd><span class="hint">to release</span>'
+    : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.6-1.8"/></svg><span>Lock keys</span>';
+  lk.title = locked ? 'Every key, Hyprland binds included, goes to this desktop. Tap Right Ctrl alone to release.' : 'Send every key, Hyprland binds included, to this desktop';
+  // Keys only reach noVNC through its canvas, so a fresh lock focuses it, whoever set it.
+  if (locked && lockedId !== f.id) requestAnimationFrame(() => $('#stage canvas')?.focus());
+  lockedId = locked ? f.id : (lockedId === f.id ? null : lockedId);
+  syncKeyboardLock();
   const idle = f.status === 'idle';
   // A real desktop always has a live display. Only a desktop with no agent offers Assign.
   const unassigned = MOCK ? idle : !f.pane;
@@ -375,8 +397,61 @@ async function connectVnc(f, stage) {
 }
 
 // ---------- actions ----------
+// ---------- key passthrough lock ----------
+// While locked, Hyprland sits in an empty submap, so every key reaches this page and
+// through noVNC the desktop. A tap of Right Ctrl alone releases it. Leaving the page,
+// losing focus or handing back always releases it, so the host never keeps the lock.
+let lockedId = null;
+function toggleLock(id) {
+  const f = state.desktops.find((d) => d.id === id);
+  return guard(async () => {
+    if (f?.locked) await api.unlock(id);
+    else { await api.lock(id); $('#stage canvas')?.focus(); }
+    await load();
+  });
+}
+function releaseLock(reason) {
+  if (!lockedId || MOCK) return;
+  const id = lockedId;
+  lockedId = null;
+  if (reason === 'pagehide') navigator.sendBeacon?.(`/api/desktops/${encodeURIComponent(id)}/unlock`);
+  else api.unlock(id).then(load).catch(() => {});
+}
+let rctl = { down: false, other: false };
+addEventListener('keydown', (e) => {
+  if (e.code === 'ControlRight') { if (!e.repeat) rctl = { down: true, other: false }; }
+  else if (rctl.down) rctl.other = true;
+}, true);
+addEventListener('keyup', (e) => {
+  if (e.code !== 'ControlRight') return;
+  const tap = rctl.down && !rctl.other;
+  rctl = { down: false, other: false };
+  if (tap && lockedId) releaseLock('rctrl');
+}, true);
+addEventListener('blur', () => releaseLock('blur'));
+document.addEventListener('visibilitychange', () => { if (document.hidden) releaseLock('hidden'); });
+addEventListener('pagehide', () => releaseLock('pagehide'));
+
+// Fullscreen is separate from the lock. With both on, Chromium's own shortcuts
+// (Ctrl+W, Ctrl+T, Esc) pass through too. Holding Esc for 2 s always exits.
+function toggleFullscreen() {
+  const stage = $('#stage');
+  if (document.fullscreenElement) document.exitFullscreen?.();
+  else stage?.requestFullscreen?.().catch((e) => toast(`Fullscreen failed: ${e.message}`));
+}
+function syncKeyboardLock() {
+  const kb = navigator.keyboard;
+  if (!kb?.lock) return;
+  if (document.fullscreenElement && lockedId) kb.lock().catch(() => {});
+  else kb.unlock?.();
+}
+document.addEventListener('fullscreenchange', () => {
+  syncKeyboardLock();
+  $('#b-fs')?.setAttribute('aria-pressed', String(Boolean(document.fullscreenElement)));
+});
+
 const takeOver = (id) => guard(async () => { state.mode = 'drive'; await api.takeover(id); await load(); });
-const handBack = (id) => guard(async () => { state.mode = 'watch'; await api.handback(id); await load(); });
+const handBack = (id) => guard(async () => { if (lockedId === id) lockedId = null; state.mode = 'watch'; await api.handback(id); await load(); });
 
 function saveShot(f) {
   const done = (blob) => {
@@ -461,6 +536,9 @@ document.addEventListener('focus-desktop', (e) => {
 });
 
 new ResizeObserver(() => root.style.setProperty('--top-h', $('.top').offsetHeight + 'px')).observe($('.top'));
+// A #focus/<id> link opens that desktop in Focus.
+const deep = /^#focus\/(.+)$/.exec(location.hash);
+if (deep) { state.view = 'focus'; state.focusId = decodeURIComponent(deep[1]); }
 buildSettings();
 applyTheme();
 api.subscribe(() => load());

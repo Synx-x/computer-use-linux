@@ -1,0 +1,21 @@
+== key passthrough lock live check 2026-10-10T08:35:59Z
+submap before lock: default
+host workspace before: 1
+submap after lock: agentdesk-lock
+row locked True control user
+active window: 0x564e66980560 Agent desktops — Zen Browser
+after Super+5 and Ctrl+L:
+  nested sway Super+5 bind fired: yes
+  host workspace: 1
+  submap: agentdesk-lock
+after a Right Ctrl tap:
+  submap: default
+  row: locked False control user
+Super+5 after release:
+  host workspace switched to: 5 (host bind works)
+  nested sway bind fired: no
+  returned to workspace 1
+safety checks:
+  close the page while locked: agentdesk-lock -> default
+  kill -9 while locked: agentdesk-lock -> agentdesk-lock, then daemon start -> default (1 release logged)
+  SIGTERM while locked: agentdesk-lock -> default

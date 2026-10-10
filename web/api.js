@@ -25,6 +25,7 @@ export function normalize(r) {
     log: r.log || [],
     control: r.control || null,
     pane: r.pane || null,
+    locked: Boolean(r.locked),
   };
 }
 
@@ -50,6 +51,8 @@ export function liveApi() {
     assign: (id, prompt) => call('POST', `/api/desktops/${encodeURIComponent(id)}/agent`, { prompt }),
     takeover: (id) => call('POST', `/api/desktops/${encodeURIComponent(id)}/takeover`),
     handback: (id) => call('POST', `/api/desktops/${encodeURIComponent(id)}/handback`),
+    lock: (id) => call('POST', `/api/desktops/${encodeURIComponent(id)}/lock`),
+    unlock: (id) => call('POST', `/api/desktops/${encodeURIComponent(id)}/unlock`),
     /** Server-sent status events. `onEvent` fires on any message, the caller refetches. */
     subscribe(onEvent) {
       const es = new EventSource('/api/events');
@@ -87,7 +90,9 @@ export function mockApi() {
       tick();
     },
     async takeover(id) { const r = find(id); if (r) r.control = 'user'; tick(); },
-    async handback(id) { const r = find(id); if (r) r.control = 'agent'; tick(); },
+    async handback(id) { const r = find(id); if (r) { r.control = 'agent'; r.locked = false; } tick(); },
+    async lock(id) { const r = find(id); if (r) r.locked = true; tick(); },
+    async unlock(id) { const r = find(id); if (r) r.locked = false; tick(); },
     subscribe(onEvent) { listeners.add(onEvent); return () => listeners.delete(onEvent); },
   };
 }

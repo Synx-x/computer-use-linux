@@ -7,6 +7,7 @@
 
 pub mod agent;
 pub mod desktop;
+pub mod keylock;
 pub mod rfb;
 mod web;
 
@@ -51,6 +52,8 @@ struct App {
     last_thumb_request: std::sync::Mutex<Option<Instant>>,
     web: web::Web,
     root: PathBuf,
+    /// The desktop whose key passthrough lock holds Hyprland in its empty submap.
+    locked: std::sync::Mutex<Option<String>>,
 }
 
 type Shared = Arc<App>;
@@ -159,6 +162,12 @@ async fn serve(options: ServeOptions) -> Result<()> {
     for orphan in desktop::clean_orphans(&root) {
         eprintln!("desktops: killed orphan {orphan}");
     }
+    // A crash can leave Hyprland in the lock submap with no binds. Free it.
+    match keylock::reset_if_ours().await {
+        Ok(true) => eprintln!("desktops: released a key lock left by an earlier run"),
+        Ok(false) => {}
+        Err(error) => eprintln!("desktops: could not check the key lock: {error:#}"),
+    }
     let (events, _) = broadcast::channel(32);
     let app = Arc::new(App {
         desktops: Mutex::new(BTreeMap::new()),
@@ -170,6 +179,7 @@ async fn serve(options: ServeOptions) -> Result<()> {
         last_thumb_request: std::sync::Mutex::new(None),
         web: web::Web::pick(options.web_dir),
         root,
+        locked: std::sync::Mutex::new(None),
     });
     eprintln!(
         "desktops: listening on http://127.0.0.1:{} with {}, at most {} desktops",
@@ -217,6 +227,7 @@ async fn shutdown_signal() {
 
 /// Stop every desktop and close every agent.
 async fn shut_down(app: &App) {
+    release_lock(app, None).await;
     let desktops: Vec<Arc<Desktop>> = app.desktops.lock().await.values().cloned().collect();
     for desktop in desktops {
         stop_desktop(desktop).await;
@@ -244,6 +255,8 @@ fn router(app: Shared) -> Router {
         .route("/api/desktops/{id}/agent", post(assign))
         .route("/api/desktops/{id}/takeover", post(takeover))
         .route("/api/desktops/{id}/handback", post(handback))
+        .route("/api/desktops/{id}/lock", post(lock))
+        .route("/api/desktops/{id}/unlock", post(unlock))
         .route("/api/desktops/{id}/thumb.webp", get(thumb))
         .route("/api/desktops/{id}/vnc", get(vnc))
         .route("/api/events", get(events))
@@ -342,12 +355,37 @@ fn desktop_json(desktop: &Desktop) -> Value {
 
 async fn snapshot_json(app: &App) -> Value {
     let desktops: Vec<Arc<Desktop>> = app.desktops.lock().await.values().cloned().collect();
-    Value::Array(
-        desktops
-            .iter()
-            .map(|desktop| desktop_json(desktop))
-            .collect(),
-    )
+    Value::Array(desktops.iter().map(|desktop| row(app, desktop)).collect())
+}
+
+/// A desktop row with its key lock state.
+fn row(app: &App, desktop: &Desktop) -> Value {
+    let mut value = desktop_json(desktop);
+    let locked = app.locked.lock().ok().and_then(|slot| slot.clone());
+    value["locked"] = json!(locked.as_deref() == Some(desktop.id.as_str()));
+    value
+}
+
+/// Free the key lock when it belongs to `only`, or whatever holds it when
+/// `only` is None. Returns true when a lock was released.
+async fn release_lock(app: &App, only: Option<&str>) -> bool {
+    let held = {
+        let Ok(mut slot) = app.locked.lock() else {
+            return false;
+        };
+        match (slot.as_deref(), only) {
+            (Some(id), Some(want)) if id != want => None,
+            (Some(_), _) => slot.take(),
+            (None, _) => None,
+        }
+    };
+    if held.is_none() {
+        return false;
+    }
+    if let Err(error) = keylock::reset().await {
+        eprintln!("desktops: could not release the key lock: {error:#}");
+    }
+    true
 }
 
 async fn announce(app: &App) {
@@ -361,7 +399,7 @@ async fn list(State(app): State<Shared>) -> Json<Value> {
 
 async fn get_one(State(app): State<Shared>, Path(id): Path<String>) -> Response {
     match lookup(&app, &id).await {
-        Ok(desktop) => Json(desktop_json(&desktop)).into_response(),
+        Ok(desktop) => Json(row(&app, &desktop)).into_response(),
         Err(response) => response,
     }
 }
@@ -414,7 +452,7 @@ async fn create(State(app): State<Shared>, body: Option<Json<CreateBody>>) -> Re
             let desktop = Arc::new(desktop);
             app.desktops.lock().await.insert(id, Arc::clone(&desktop));
             announce(&app).await;
-            (StatusCode::CREATED, Json(desktop_json(&desktop))).into_response()
+            (StatusCode::CREATED, Json(row(&app, &desktop))).into_response()
         }
         Err(error) => self::error(StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")),
     }
@@ -424,6 +462,7 @@ async fn remove(State(app): State<Shared>, Path(id): Path<String>) -> Response {
     let Some(desktop) = app.desktops.lock().await.remove(&id) else {
         return error(StatusCode::NOT_FOUND, format!("no desktop {id}"));
     };
+    release_lock(&app, Some(&id)).await;
     stop_desktop(desktop).await;
     announce(&app).await;
     StatusCode::NO_CONTENT.into_response()
@@ -474,7 +513,7 @@ async fn assign(
                 );
             }
             announce(&app).await;
-            Json(desktop_json(&desktop)).into_response()
+            Json(row(&app, &desktop)).into_response()
         }
         Err(error) => self::error(StatusCode::BAD_GATEWAY, format!("{error:#}")),
     }
@@ -493,7 +532,7 @@ async fn takeover(State(app): State<Shared>, Path(id): Path<String>) -> Response
     }
     desktop.user_control.store(true, Ordering::SeqCst);
     announce(&app).await;
-    Json(desktop_json(&desktop)).into_response()
+    Json(row(&app, &desktop)).into_response()
 }
 
 async fn handback(State(app): State<Shared>, Path(id): Path<String>) -> Response {
@@ -502,6 +541,7 @@ async fn handback(State(app): State<Shared>, Path(id): Path<String>) -> Response
         Err(response) => return response,
     };
     // Input stops before the agent hears it may continue.
+    release_lock(&app, Some(&id)).await;
     desktop.user_control.store(false, Ordering::SeqCst);
     let agent = desktop.agent.lock().ok().and_then(|slot| slot.clone());
     if let Some(agent) = &agent {
@@ -510,7 +550,47 @@ async fn handback(State(app): State<Shared>, Path(id): Path<String>) -> Response
         }
     }
     announce(&app).await;
-    Json(desktop_json(&desktop)).into_response()
+    Json(row(&app, &desktop)).into_response()
+}
+
+/// Send every key, Hyprland binds included, to this desktop. Only during take over.
+async fn lock(State(app): State<Shared>, Path(id): Path<String>) -> Response {
+    let desktop = match lookup(&app, &id).await {
+        Ok(desktop) => desktop,
+        Err(response) => return response,
+    };
+    if !desktop.user_has_control() {
+        return error(
+            StatusCode::CONFLICT,
+            "take over the desktop before locking keys",
+        );
+    }
+    let other = app.locked.lock().ok().and_then(|slot| slot.clone());
+    if other.as_deref().is_some_and(|other| other != id) {
+        release_lock(&app, None).await;
+    }
+    if let Err(error) = keylock::enter().await {
+        return self::error(StatusCode::BAD_GATEWAY, format!("{error:#}"));
+    }
+    if let Ok(mut slot) = app.locked.lock() {
+        *slot = Some(id.clone());
+    }
+    announce(&app).await;
+    Json(row(&app, &desktop)).into_response()
+}
+
+/// Give the host its binds back. Safe to call when nothing is locked.
+async fn unlock(State(app): State<Shared>, Path(id): Path<String>) -> Response {
+    let desktop = match lookup(&app, &id).await {
+        Ok(desktop) => desktop,
+        Err(response) => return response,
+    };
+    if !release_lock(&app, Some(&id)).await {
+        // Nothing recorded, but never leave the host stuck in our submap.
+        let _ = keylock::reset_if_ours().await;
+    }
+    announce(&app).await;
+    Json(row(&app, &desktop)).into_response()
 }
 
 fn mark_wall_watched(app: &App) {
@@ -572,6 +652,15 @@ struct ClientGuard(Shared);
 impl Drop for ClientGuard {
     fn drop(&mut self) {
         self.0.sse_clients.fetch_sub(1, Ordering::SeqCst);
+        // A page that lost its event stream can no longer unlock, so unlock for it.
+        let app = Arc::clone(&self.0);
+        if app.locked.lock().ok().is_some_and(|slot| slot.is_some()) {
+            tokio::spawn(async move {
+                if release_lock(&app, None).await {
+                    announce(&app).await;
+                }
+            });
+        }
     }
 }
 
@@ -616,6 +705,10 @@ async fn vnc(
         .on_upgrade(move |socket| async move {
             if let Err(error) = proxy_vnc(socket, desktop).await {
                 eprintln!("desktops: VNC proxy closed: {error:#}");
+            }
+            // Keys only reach the desktop through this stream, so its end ends the lock.
+            if release_lock(&app, Some(&id)).await {
+                announce(&app).await;
             }
         })
 }

@@ -43,6 +43,18 @@ The daemon needs `sway`, `wayvnc`, `grim`, `herdr` and `claude` on `PATH`.
 5. **Take over** interrupts the agent and passes the user's mouse and keys through the stream. **Hand back** blocks them again and tells the agent to continue.
 6. **Stop desktop** ends the agent, the compositor and every app on that desktop.
 
+## Key passthrough lock
+
+The lock sends every key to the desktop during take over, Hyprland binds included.
+
+- **Lock keys.** The padlock sits over the live view while the user drives. The padlock turns amber when locked and names the release key.
+- **Release.** A tap of Right Ctrl alone releases the lock. Right Ctrl held with another key still passes through.
+- **How.** The lock moves Hyprland into the `agentdesk-lock` submap. That submap holds one bind, on F24, a key no keyboard sends. Hyprland 0.56 refuses an unregistered submap, so the daemon registers it at runtime before each lock.
+- **Fullscreen.** The fullscreen button is separate from the lock. With both on, the page also calls `navigator.keyboard.lock()`, so Chromium's own shortcuts pass through. Holding Esc for 2 s always leaves fullscreen.
+- **Safety.** The lock releases on hand back, desktop stop, window blur, a hidden page, a closed page, a lost event stream or VNC stream, and daemon SIGTERM. A daemon start also resets a lock left by a crash.
+
+A live check on 2026-10-10 sent Super+5 and Ctrl+L while locked. Both reached the desktop: a nested sway bind fired and foot printed `^L`. The host stayed on its workspace. After a Right Ctrl tap, Super+5 switched the host workspace again. `docs/shots/lock/log.txt` holds the record.
+
 Settings hold two theme options: Glass, for how much sky shows through the panels, and Sky, Moving or Still. The browser keeps both in `localStorage`.
 
 ## How the parts stay apart from the host
@@ -65,6 +77,7 @@ All routes live on the daemon's port.
 | DELETE | `/api/desktops/:id` | Stop a desktop and its agent |
 | POST | `/api/desktops/:id/agent` | Assign an agent. Body: `prompt` |
 | POST | `/api/desktops/:id/takeover`, `/handback` | Change control |
+| POST | `/api/desktops/:id/lock`, `/unlock` | Key passthrough lock, during take over only |
 | GET | `/api/desktops/:id/thumb.webp` | Latest thumbnail |
 | WS | `/api/desktops/:id/vnc` | Proxied VNC stream |
 | GET | `/api/events` | Server-sent status events |
