@@ -52,7 +52,7 @@ export function liveApi() {
     takeover: (id) => call('POST', `/api/desktops/${encodeURIComponent(id)}/takeover`),
     handback: (id) => call('POST', `/api/desktops/${encodeURIComponent(id)}/handback`),
     lock: (id) => call('POST', `/api/desktops/${encodeURIComponent(id)}/lock`),
-    unlock: (id) => call('POST', `/api/desktops/${encodeURIComponent(id)}/unlock`),
+    unlock: (id, reason = 'user') => call('POST', `/api/desktops/${encodeURIComponent(id)}/unlock?reason=${encodeURIComponent(reason)}`),
     /** Server-sent status events. `onEvent` fires on any message, the caller refetches. */
     subscribe(onEvent) {
       const es = new EventSource('/api/events');

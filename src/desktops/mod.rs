@@ -683,16 +683,23 @@ async fn lock(State(app): State<Shared>, Path(id): Path<String>) -> Response {
     if let Ok(mut slot) = app.locked.lock() {
         *slot = Some(id.clone());
     }
+    eprintln!("desktops: lock {id}");
     announce(&app).await;
     Json(row(&app, &desktop)).into_response()
 }
 
 /// Give the host its binds back. Safe to call when nothing is locked.
-async fn unlock(State(app): State<Shared>, Path(id): Path<String>) -> Response {
+async fn unlock(
+    State(app): State<Shared>,
+    Path(id): Path<String>,
+    axum::extract::Query(query): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Response {
     let desktop = match lookup(&app, &id).await {
         Ok(desktop) => desktop,
         Err(response) => return response,
     };
+    let reason = query.get("reason").map(String::as_str).unwrap_or("unknown");
+    eprintln!("desktops: unlock {id}, reason {reason}");
     if !release_lock(&app, Some(&id)).await {
         // Nothing recorded, but never leave the host stuck in our submap.
         let _ = keylock::reset_if_ours().await;
