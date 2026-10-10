@@ -31,7 +31,7 @@ class DesktopTile extends HTMLElement {
   /** Set the desktop record. Rebuilds only when something visible changed. */
   set data(d) {
     this.dataset.status = d.status;
-    const sig = JSON.stringify([d.name, d.task, d.agent, d.last, d.ago, d.status, d.display, d.res, d.windowTitle, d.lines]);
+    const sig = JSON.stringify([d.name, d.task, d.agent, d.last, d.ago, d.status, d.display, d.res, d.windowTitle, d.lines, d.pane]);
     this.d = d;
     if (sig === this.#sig) return;
     this.#sig = sig;
@@ -41,7 +41,7 @@ class DesktopTile extends HTMLElement {
   /** Real mode: swap in the latest thumbnail without a flicker. */
   refreshThumb() {
     const d = this.d;
-    if (!d || !this.#img || d.status === 'idle') return;
+    if (!d || !this.#img) return;
     const probe = new Image();
     probe.onload = () => {
       if (!this.#img) return;
@@ -64,7 +64,8 @@ class DesktopTile extends HTMLElement {
     hit.setAttribute('aria-label', `Focus ${d.name}`);
     hit.addEventListener('click', () => this.#emit('watch'));
 
-    if (d.status !== 'idle') {
+    // A real desktop always has a screen to show. Mock idle desktops have none.
+    if (!mock || d.status !== 'idle') {
       if (mock) {
         hit.append(windowMock(d.lines, d.windowTitle));
       } else {
@@ -79,9 +80,8 @@ class DesktopTile extends HTMLElement {
         fb.classList.add('fallback');
         hit.append(shot, fb);
       }
-    } else {
-      hit.append(el('span', 'idle-note', 'Waiting for an agent'));
     }
+    if (mock ? d.status === 'idle' : !d.pane) hit.append(el('span', 'idle-note', 'Waiting for an agent'));
     this.append(hit);
 
     const tl = el('div', 'tl');

@@ -24,6 +24,7 @@ export function normalize(r) {
     lines: r.lines || [],
     log: r.log || [],
     control: r.control || null,
+    pane: r.pane || null,
   };
 }
 

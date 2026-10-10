@@ -1,28 +1,60 @@
+/* Sky from ~/dev/space-bg at 04bc051 (PORT.md). Real imagery: ESO/S. Brunier; NASA, ESA, CSA, STScI. CC BY 4.0. */
 .mini{background-color:#05040c;background-image:radial-gradient(1.2px 1.2px at 12% 30%,#fff,transparent),radial-gradient(1px 1px at 34% 70%,#fff,transparent),radial-gradient(1.4px 1.4px at 58% 22%,#E9FFD0,transparent),radial-gradient(1px 1px at 76% 64%,#fff,transparent),radial-gradient(1.2px 1.2px at 88% 18%,#D8CCFF,transparent),radial-gradient(1px 1px at 22% 86%,#fff,transparent),radial-gradient(1px 1px at 66% 88%,#fff,transparent),radial-gradient(60% 70% at 20% 10%,rgba(127,255,0,.16),transparent 70%),radial-gradient(60% 70% at 85% 50%,rgba(167,139,250,.28),transparent 70%)}
-.sky.still *{animation-play-state:paused!important}
 .space{position:relative;isolation:isolate;overflow:hidden}
 .space>*{position:relative;z-index:1}
 .space>.sky{position:absolute;inset:0;z-index:0;pointer-events:none;overflow:hidden;background:radial-gradient(120% 90% at 85% -10%,#0E0C1C 0%,#06050C 55%,#030208 100%)}
-.sky>div{position:absolute}
-.neb{inset:-25%;background-image:radial-gradient(28% 24% at 24% 16%,rgba(127,255,0,.085),transparent 70%),radial-gradient(30% 32% at 78% 36%,rgba(167,139,250,.15),transparent 70%),radial-gradient(42% 28% at 46% 94%,rgba(96,165,250,.085),transparent 70%),radial-gradient(16% 12% at 62% 60%,rgba(200,182,255,.06),transparent 70%);animation:neb 120s cubic-bezier(.45,0,.55,1) infinite alternate;will-change:transform}
-/* One celestial sphere: every star, the milky way and the constellations turn together round a pole above the top-right corner. */
-.sphere{width:3400px;height:3400px;left:calc(85% - 1700px);top:-1800px;animation:turn 960s linear infinite;will-change:transform;background-image:radial-gradient(1.5px 1.2px at 19px 139px,rgba(255,255,255,.92),transparent),radial-gradient(1.4px 1.0px at 272px 243px,rgba(178,255,102,.9),transparent),radial-gradient(1.6px 1.8px at 118px 457px,rgba(255,255,255,.92),transparent),radial-gradient(1.5px 1.5px at 377px 79px,rgba(178,255,102,.9),transparent),radial-gradient(1.2px 1.4px at 182px 11px,rgba(255,255,255,.92),transparent),radial-gradient(1.4px 1.0px at 231px 278px,rgba(200,182,255,.9),transparent),radial-gradient(1.4px 1.8px at 512px 163px,rgba(255,255,255,.92),transparent),radial-gradient(1.7px 1.6px at 229px 89px,rgba(255,255,255,.92),transparent),radial-gradient(1.7px 1.6px at 133px 461px,rgba(255,255,255,.92),transparent),radial-gradient(1.2px 1.7px at 6px 385px,rgba(170,205,255,.9),transparent),radial-gradient(1.5px 1.7px at 351px 474px,rgba(200,182,255,.9),transparent),radial-gradient(1.5px 1.2px at 126px 218px,rgba(178,255,102,.9),transparent),radial-gradient(0.8px 0.9px at 67px 47px,rgba(200,182,255,.9),transparent),radial-gradient(0.7px 0.9px at 169px 267px,rgba(170,205,255,.9),transparent),radial-gradient(1.0px 1.2px at 243px 183px,rgba(200,182,255,.9),transparent),radial-gradient(1.2px 0.6px at 38px 246px,rgba(255,255,255,.92),transparent),radial-gradient(1.0px 0.8px at 37px 38px,rgba(255,255,255,.92),transparent),radial-gradient(0.9px 1.0px at 66px 174px,rgba(200,182,255,.9),transparent),radial-gradient(0.7px 0.9px at 39px 213px,rgba(255,255,255,.92),transparent),radial-gradient(1.1px 0.9px at 319px 195px,rgba(255,255,255,.92),transparent),radial-gradient(0.9px 1.0px at 41px 46px,rgba(255,255,255,.92),transparent),radial-gradient(1.2px 1.1px at 169px 198px,rgba(255,255,255,.92),transparent),radial-gradient(0.9px 1.1px at 42px 265px,rgba(255,255,255,.92),transparent),radial-gradient(0.8px 0.7px at 11px 117px,rgba(255,255,255,.92),transparent),radial-gradient(0.9px 1.0px at 248px 130px,rgba(255,255,255,.92),transparent),radial-gradient(0.8px 0.7px at 313px 103px,rgba(170,205,255,.9),transparent),radial-gradient(1.1px 0.8px at 226px 255px,rgba(170,205,255,.9),transparent),radial-gradient(0.8px 1.0px at 101px 220px,rgba(170,205,255,.9),transparent),radial-gradient(1.1px 0.8px at 298px 162px,rgba(170,205,255,.9),transparent),radial-gradient(0.7px 0.9px at 20px 32px,rgba(200,182,255,.9),transparent),radial-gradient(1.1px 0.7px at 241px 140px,rgba(170,205,255,.9),transparent),radial-gradient(1.1px 0.8px at 266px 252px,rgba(200,182,255,.9),transparent),radial-gradient(1.0px 1.1px at 319px 231px,rgba(200,182,255,.9),transparent),radial-gradient(0.6px 0.6px at 311px 21px,rgba(200,182,255,.9),transparent),radial-gradient(0.6px 0.6px at 119px 115px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.6px at 161px 157px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.5px at 23px 137px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.6px at 115px 167px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.7px at 16px 15px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.5px at 7px 118px,rgba(170,205,255,.9),transparent),radial-gradient(0.6px 0.7px at 132px 59px,rgba(170,205,255,.9),transparent),radial-gradient(0.6px 0.7px at 117px 167px,rgba(170,205,255,.9),transparent),radial-gradient(0.6px 0.6px at 21px 65px,rgba(170,205,255,.9),transparent),radial-gradient(0.7px 0.6px at 7px 17px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.7px at 98px 17px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.4px at 53px 13px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.7px at 107px 18px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.5px at 22px 79px,rgba(170,205,255,.9),transparent),radial-gradient(0.4px 0.6px at 30px 34px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.4px at 119px 124px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.5px at 130px 48px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.6px at 101px 107px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.7px at 151px 77px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.6px at 154px 164px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.5px at 113px 66px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.5px at 75px 98px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.5px at 162px 62px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.5px at 116px 32px,rgba(255,255,255,.92),transparent),radial-gradient(0.7px 0.5px at 98px 46px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.5px at 156px 63px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.7px at 141px 50px,rgba(255,255,255,.92),transparent),radial-gradient(0.8px 0.6px at 107px 12px,rgba(255,255,255,.92),transparent),radial-gradient(0.4px 0.6px at 65px 61px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.7px at 152px 125px,rgba(170,205,255,.9),transparent),radial-gradient(0.6px 0.8px at 17px 32px,rgba(255,255,255,.92),transparent),radial-gradient(0.6px 0.7px at 157px 157px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.8px at 52px 4px,rgba(255,255,255,.92),transparent),radial-gradient(0.5px 0.6px at 15px 11px,rgba(255,255,255,.92),transparent);background-size:560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,560px 560px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,320px 320px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px,180px 180px}
-.milky{position:absolute;left:600px;top:1500px;width:2600px;height:520px;transform:rotate(-38deg);background:radial-gradient(50% 50% at 50% 50%,rgba(210,200,255,.10),rgba(170,160,230,.05) 45%,transparent 75%);filter:blur(18px)}
-.chart{position:absolute;inset:0}
-.chart line{stroke:#B2FF66;stroke-width:1.1;stroke-linecap:round;stroke-opacity:.16}
-.chart .halo{fill:url(#hg);opacity:.5}
-.chart .core{fill:#F4FFE8;animation:tw 6s ease-in-out infinite alternate}
-.chart text{font:600 15px 'JetBrains Mono',monospace;letter-spacing:.32em;fill:#B2FF66;opacity:0}
-.cst .ln{animation-delay:inherit}
-.cst line{animation:lnf 70s cubic-bezier(.45,0,.55,1) infinite;animation-delay:inherit}
-.cst text{animation:lbf 70s cubic-bezier(.45,0,.55,1) infinite;animation-delay:inherit}
-.cst .halo{animation:hlf 70s cubic-bezier(.45,0,.55,1) infinite;animation-delay:inherit}
-@keyframes lnf{0%,16%,100%{stroke-opacity:.16}6%,10%{stroke-opacity:.7}}
-@keyframes lbf{0%,16%,100%{opacity:0}6%,10%{opacity:.85}}
-@keyframes hlf{0%,16%,100%{opacity:.5}6%,10%{opacity:1}}
-@keyframes tw{from{opacity:.6}to{opacity:1}}
+.sky>div{position:absolute;inset:0}
+.cam{transform-origin:50% 50%}
+.cam img{display:block;position:absolute;user-select:none;-webkit-user-drag:none}
+
+/* Deep field: ESO all-sky plate and the constellation chart share one celestial sphere that turns round a pole just above the middle of the view, so a 3300 px plate covers every corner at 2560x1440. */
+.sphere{position:absolute;width:3300px;height:3300px;left:calc(54% - 1650px);top:calc(40% - 1650px);animation:turn 960s linear infinite;will-change:transform}
+.sphere>img{left:0;top:0;width:3300px;height:3300px}
+.chartbox{position:absolute;left:-50px;top:-50px;width:3400px;height:3400px}
+.chart{position:absolute;inset:0;width:3400px;height:3400px}
+.chart line{stroke:#B2FF66;stroke-width:1.1;stroke-linecap:round;stroke-opacity:.14}
+.chart circle{fill:#F4FFE8;fill-opacity:.55}
+/* One highlight per constellation. Each animates opacity only, and never quite to 0 (0.01 survives 8-bit alpha quantization):
+   at 0 Chrome drops the layer's tiles and re-rasterizes them on the way back up, which
+   cost 33-133 ms frames at 2560x1440. A flash after a camera move joins the animation
+   list, so the focus cycle keeps its phase. */
+.hi{position:absolute;opacity:.01;animation:hif 196s cubic-bezier(.45,0,.55,1) var(--dl) infinite;pointer-events:none}
+.hi.flA{animation:hif 196s cubic-bezier(.45,0,.55,1) var(--dl) infinite,flA 3.8s ease-in-out var(--fd,0s)}
+.hi.flB{animation:hif 196s cubic-bezier(.45,0,.55,1) var(--dl) infinite,flB 3.8s ease-in-out var(--fd,0s)}
+.hi.d1{--fd:.24s}.hi.d2{--fd:.48s}.hi.d3{--fd:.72s}
+.hi svg{display:block;overflow:visible}
+.hi line{stroke:#B2FF66;stroke-width:1.2;stroke-linecap:round;stroke-opacity:.7}
+.hi .h{fill:#B2FF66;fill-opacity:.16}
+.hi .c{fill:#F4FFE8}
+.hi text{font:600 15px 'JetBrains Mono',monospace;letter-spacing:.32em;fill:#B2FF66;fill-opacity:.85}
+@keyframes hif{0%,9%,100%{opacity:.01}2.6%,5.8%{opacity:1}}
+@keyframes flA{0%,100%{opacity:.01}22%,70%{opacity:1}}
+@keyframes flB{0%,100%{opacity:.01}22%,70%{opacity:1}}
 @keyframes turn{to{transform:rotate(360deg)}}
-@keyframes neb{to{transform:translate3d(2.5%,-2%,0) scale(1.08) rotate(4deg)}}
-.shoot{top:16%;left:-14%;width:180px;height:1px;background:linear-gradient(90deg,transparent,rgba(233,255,208,.95));border-radius:1px;opacity:0;animation:shoot 19s cubic-bezier(.3,.1,.4,1) 5s infinite}
-@keyframes shoot{0%{opacity:0;transform:rotate(-14deg) translateX(0)}1.5%{opacity:.9}7%{opacity:0;transform:rotate(-14deg) translateX(80vw)}100%{opacity:0;transform:rotate(-14deg) translateX(80vw)}}
-@media (prefers-reduced-motion:reduce){.sky *{animation:none!important}.shoot{display:none}.chart line{stroke-opacity:.3}}
+
+/* Nebula plate and near star plate drift against each other for depth. */
+.nebula{left:calc(62% - 1350px);top:calc(38% - 868px);width:2700px;height:1735px;opacity:.92;animation:drift 150s cubic-bezier(.45,0,.55,1) infinite alternate;will-change:transform}
+.near{left:calc(50% - 1400px);top:calc(50% - 850px);width:2800px;height:1700px;animation:drift2 100s cubic-bezier(.45,0,.55,1) infinite alternate;will-change:transform}
+@keyframes drift{to{transform:translate3d(-4.5%,3%,0) scale(1.06) rotate(1.5deg)}}
+@keyframes drift2{to{transform:translate3d(3.5%,-2.5%,0) scale(1.03)}}
+.cam{will-change:transform}
+
+/* Random sky events. A slot's outer box holds the static start point and heading.
+   The inner box moves along it with fixed keyframes, so only transform and opacity
+   animate. Each kind has twin keyframes (A/B) so a reused slot always restarts. */
+.ev{position:absolute;left:0;top:0;transform-origin:0 50%;pointer-events:none}
+.ev.off{display:none}
+.evi{position:relative;height:2px;opacity:0}
+.meteor .evi::before{content:"";position:absolute;right:100%;top:0;width:var(--len);height:1.6px;border-radius:1px;background:linear-gradient(90deg,transparent,var(--tint))}
+.sat .evi::before{content:"";position:absolute;left:-1.5px;top:-.5px;width:3px;height:3px;border-radius:50%;background:#EDEBFF;box-shadow:0 0 6px 1px rgba(200,190,255,.55)}
+.comet .evi{height:8px;margin-top:-3px}
+.comet .evi::before{content:"";position:absolute;right:100%;top:1px;width:520px;height:6px;border-radius:3px;background:linear-gradient(90deg,transparent,rgba(120,170,255,.16) 55%,rgba(220,235,255,.55))}
+.comet .evi::after{content:"";position:absolute;left:-5px;top:0;width:8px;height:8px;border-radius:50%;background:radial-gradient(circle,#fff 0 1.5px,rgba(210,230,255,.6) 3px,transparent 4.5px)}
+.flare .evi{width:260px;height:260px;margin:-130px 0 0 -130px;background:radial-gradient(circle,rgba(255,255,255,.95) 0 2px,rgba(214,204,255,.45) 5px,transparent 38%),linear-gradient(90deg,transparent 8%,rgba(255,255,255,.55) 50%,transparent 92%) center/100% 1.4px no-repeat,linear-gradient(0deg,transparent 8%,rgba(255,255,255,.55) 50%,transparent 92%) center/1.4px 100% no-repeat}
+@keyframes mvA{0%{transform:translateX(0);opacity:0}14%{opacity:1}62%{opacity:.7}100%{transform:translateX(100%);opacity:0}}
+@keyframes mvB{0%{transform:translateX(0);opacity:0}14%{opacity:1}62%{opacity:.7}100%{transform:translateX(100%);opacity:0}}
+@keyframes stA{0%{transform:translateX(0);opacity:0}8%,44%,56%,92%{opacity:.85}50%{opacity:.3}100%{transform:translateX(100%);opacity:0}}
+@keyframes stB{0%{transform:translateX(0);opacity:0}8%,44%,56%,92%{opacity:.85}50%{opacity:.3}100%{transform:translateX(100%);opacity:0}}
+@keyframes cmA{0%{transform:translateX(0);opacity:0}6%,94%{opacity:.55}100%{transform:translateX(100%);opacity:0}}
+@keyframes cmB{0%{transform:translateX(0);opacity:0}6%,94%{opacity:.55}100%{transform:translateX(100%);opacity:0}}
+@keyframes frA{0%{transform:scale(.15);opacity:0}22%{transform:scale(1);opacity:.9}60%{transform:scale(.6);opacity:.35}100%{transform:scale(.3);opacity:0}}

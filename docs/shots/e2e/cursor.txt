@@ -1,0 +1,5 @@
+cursor-before 1064, 101
+cursor-before-takeover 248, 925
+cursor-during-takeover 1403, 829 -> 1403, 829
+cursor-during-human-typing 149, 467 -> 63, 466
+cursor-after 665, 482

@@ -45,9 +45,15 @@ const BLUR = {
 const root = document.documentElement;
 const space = $('.space');
 
+// The sky (sky.js) moves its camera when the page changes. Each change picks a move
+// that matches it, and the sky ignores moves while it is still or reduced-motion.
+const skyMove = (kind) => window.sky?.transition(kind);
+let skyWas = { sky: null, settings: false, page: null };
+
 function applyTheme() {
   root.dataset.blur = state.blur;
-  $('#sky').classList.toggle('still', state.sky === 'still');
+  if (state.sky !== skyWas.sky) { window.sky?.setMoving(state.sky !== 'still'); skyWas.sky = state.sky; }
+  if (state.settings !== skyWas.settings) { skyMove(state.settings ? 'warp' : 'shift'); skyWas.settings = state.settings; }
   space.classList.toggle('settings-open', state.settings);
   $('.content').toggleAttribute('inert', state.settings);
   $('.content').setAttribute('aria-hidden', String(state.settings));
@@ -121,6 +127,9 @@ const focused = () => state.desktops.find((d) => d.id === state.focusId) || stat
 const driving = (d) => state.mode === 'drive' || d?.control === 'user';
 
 function render() {
+  const page = state.view + ':' + (state.view === 'focus' ? state.focusId : '');
+  if (skyWas.page !== null && page !== skyWas.page) skyMove(state.view === 'wall' ? 'expand' : skyWas.page.startsWith('wall') ? 'zoom' : 'shift');
+  skyWas.page = page;
   const live = state.desktops.filter((d) => d.status !== 'idle').length;
   const needs = state.desktops.filter((d) => d.status === 'needs').length;
   $('#live-n').textContent = live;
@@ -184,6 +193,8 @@ function buildFocus() {
   stage.id = 'stage';
 
   const head = el('div', 'head');
+  // The live view starts below the header, however tall a long task makes it.
+  new ResizeObserver(() => stage.style.setProperty('--head-h', head.offsetHeight + 'px')).observe(head);
   const info = el('div');
   const sub = el('div', 'sub'); sub.id = 'f-sub';
   const h1 = el('h1'); h1.id = 'f-name';
@@ -204,12 +215,10 @@ function buildFocus() {
 
   const foot = el('div', 'foot');
   const row = el('div', 'row');
-  const pause = btn('pill', 'Pause agent', () => takeOver(f.id)); pause.id = 'b-pause';
   const shot = btn('pill', 'Save screenshot', () => saveShot(f)); shot.id = 'b-shot';
-  const vnc = btn('pill', 'Open in VNC viewer', () => toast('No VNC viewer link from the daemon yet')); vnc.id = 'b-vnc';
   const assign = btn('pill', 'Assign agent', () => assignDialog(f)); assign.id = 'b-assign';
   const stop = btn('pill danger', 'Stop desktop', () => stopDesktop(f)); stop.id = 'b-stop';
-  row.append(pause, assign, shot, vnc, stop);
+  row.append(assign, shot, stop);
   const mode = el('span', 'mode'); mode.id = 'f-mode';
   foot.append(row, mode);
   stage.append(head, banner, foot);
@@ -241,11 +250,9 @@ function updateStage(f) {
   $('#b-drive').setAttribute('aria-pressed', String(dr));
   $('#f-mode').textContent = dr ? 'YOU ARE DRIVING · agent paused' : 'WATCHING · read-only';
   const idle = f.status === 'idle';
-  $('#b-assign').hidden = !idle;
-  $('#b-pause').hidden = idle;
-  $('#b-pause').toggleAttribute('disabled', dr);
-  $('#b-vnc').toggleAttribute('aria-disabled', !MOCK);
-  if (!MOCK) $('#b-vnc').title = 'Waiting on the daemon';
+  // A real desktop always has a live display. Only a desktop with no agent offers Assign.
+  const unassigned = MOCK ? idle : !f.pane;
+  $('#b-assign').hidden = !unassigned;
 
   // The stage shows live VNC in real mode and the text window in mock mode.
   const skey = [f.id, f.status, f.windowTitle, f.lines.join('|')].join('#');
@@ -256,13 +263,8 @@ function updateStage(f) {
     else { const w = windowMock(f.lines, f.windowTitle); stage.prepend(w); }
   }
   if (!MOCK) {
-    if (idle) {
-      if (!stage.querySelector('.idle-note')) stage.prepend(el('div', 'idle-note', 'Waiting for an agent'));
-      teardownVnc();
-    } else {
-      stage.querySelector('.idle-note')?.remove();
-      connectVnc(f, stage);
-    }
+    if (rfbHost && rfbHost !== f.id) teardownVnc();
+    connectVnc(f, stage);
     if (rfb) rfb.viewOnly = !dr;
   }
 
