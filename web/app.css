@@ -108,10 +108,10 @@ desktop-tile[variant="rail"] .tl .st { gap: 6px; font-size: 11px; }
 desktop-tile[variant="rail"] .tl .meta { font-size: 10px; }
 .band { position: absolute; left: 0; right: 0; bottom: 0; padding: 40px 20px 16px; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; background: linear-gradient(to top, rgba(3, 2, 8, .9), rgba(3, 2, 8, .6) 55%, rgba(3, 2, 8, 0)); pointer-events: none; transition: transform 600ms var(--ease); }
 desktop-tile[variant="rail"] .band { padding: 26px 14px 10px; flex-wrap: nowrap; gap: 8px; }
-.band .who { min-width: 0; }
+.band .who { flex: 1 1 260px; min-width: 0; }
 .band .nm { font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
-.band .tk { font-size: 14px; color: var(--ink-2); }
-.band .ag { font-size: 12px; color: var(--dim); }
+.band .tk { font-size: 14px; color: var(--ink-2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; max-width: 70ch; }
+.band .ag { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 desktop-tile[variant="rail"] .nm { font-size: 14px; letter-spacing: 0; }
 desktop-tile[variant="rail"] .tk { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .band .acts { display: flex; gap: 4px; pointer-events: auto; }

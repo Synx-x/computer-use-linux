@@ -94,7 +94,8 @@ class DesktopTile extends HTMLElement {
 
     const band = el('div', 'band');
     const who = el('div', 'who');
-    who.append(el('div', 'nm', d.name), el('div', 'tk', d.task));
+    const tk = el('div', 'tk', d.task); tk.title = d.task;
+    who.append(el('div', 'nm', d.name), tk);
     if (!rail) who.append(el('div', 'ag', `${d.agent} · ${d.last}, ${d.ago} ago`));
     band.append(who);
     if (rail) {
