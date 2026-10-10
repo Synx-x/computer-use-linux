@@ -312,7 +312,7 @@ impl DesktopsMcp {
 #[tool_handler(
     router = self.tool_router.clone(),
     name = "agent-desktops",
-    version = "0.8.1",
+    version = "0.8.2",
     instructions = "Agent desktops run tasks in isolation. Each desktop is a hidden Wayland desktop with its own sandboxed Claude agent, which can see only its own folder and screen. Use start_task when the user asks for parallel work, or wants a task kept away from their own session. Give each task a full, self-contained prompt. Then call wait_for_desktop, read desktop_status, and check desktop_screenshot when unsure. Status needs means the agent waits on a person: tell the user and share the watch link. Stop desktops you no longer need. The user can watch and take over any desktop in the viewer."
 )]
 impl ServerHandler for DesktopsMcp {}
