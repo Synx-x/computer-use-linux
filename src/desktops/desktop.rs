@@ -53,6 +53,46 @@ pub fn clean_env() -> Vec<(String, String)> {
         .collect()
 }
 
+/// The render node each desktop's sway draws with, or None to let wlroots pick.
+/// NVIDIA's driver fails wlroots screen capture at some output sizes: a
+/// 1170x2532 desktop failed every grim and wayvnc capture, while 1920x1080
+/// worked. A failed capture leaves the Focus view and thumbnails blank. So when
+/// an NVIDIA node sits beside another GPU's node, the desktop draws on the other
+/// one. Apps inside still pick their own GPU. `CUL_DESKTOP_RENDER_DEVICE`
+/// overrides the choice, and an empty value lets wlroots pick.
+fn render_device() -> Option<String> {
+    if let Ok(device) = std::env::var("CUL_DESKTOP_RENDER_DEVICE") {
+        return (!device.is_empty()).then_some(device);
+    }
+    let mut nodes: Vec<(String, Option<String>)> = std::fs::read_dir("/dev/dri")
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("renderD"))
+        .map(|name| {
+            let driver = std::fs::read_link(format!("/sys/class/drm/{name}/device/driver"))
+                .ok()
+                .and_then(|path| path.file_name().map(|f| f.to_string_lossy().into_owned()));
+            (name, driver)
+        })
+        .collect();
+    nodes.sort();
+    pick_render_node(&nodes).map(|name| format!("/dev/dri/{name}"))
+}
+
+/// From (node, driver) pairs, the first non-NVIDIA node, but only when an
+/// NVIDIA node is present. Without NVIDIA the wlroots default is fine.
+fn pick_render_node(nodes: &[(String, Option<String>)]) -> Option<String> {
+    let nvidia = |driver: &Option<String>| driver.as_deref() == Some("nvidia");
+    if !nodes.iter().any(|(_, driver)| nvidia(driver)) {
+        return None;
+    }
+    nodes
+        .iter()
+        .find(|(_, driver)| driver.is_some() && !nvidia(driver))
+        .map(|(name, _)| name.clone())
+}
+
 /// The sway `exec` line that starts the desktop shell, or nothing.
 fn shell_exec_line() -> String {
     let shell = std::env::var("CUL_DESKTOP_SHELL").unwrap_or_else(|_| DEFAULT_SHELL.to_string());
@@ -253,6 +293,9 @@ impl Desktop {
             .env("WLR_BACKENDS", "headless")
             .env("WLR_LIBINPUT_NO_DEVICES", "1")
             .env("SWAYSOCK", &sway_socket);
+        if let Some(device) = render_device() {
+            sway.env("WLR_RENDER_DRM_DEVICE", device);
+        }
         let mut sway = spawn_group(&mut sway, &dir.join("sway.log")).context("start sway")?;
 
         let deadline = Instant::now() + READY_TIMEOUT;
@@ -488,6 +531,42 @@ pub fn clean_orphans(root: &Path) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+
+    fn node(name: &str, driver: Option<&str>) -> (String, Option<String>) {
+        (name.to_string(), driver.map(str::to_string))
+    }
+
+    #[test]
+    fn render_node_avoids_nvidia_beside_another_gpu() {
+        let hybrid = [
+            node("renderD128", Some("i915")),
+            node("renderD129", Some("nvidia")),
+        ];
+        assert_eq!(pick_render_node(&hybrid).as_deref(), Some("renderD128"));
+        let nvidia_first = [
+            node("renderD128", Some("nvidia")),
+            node("renderD129", Some("amdgpu")),
+        ];
+        assert_eq!(
+            pick_render_node(&nvidia_first).as_deref(),
+            Some("renderD129")
+        );
+    }
+
+    #[test]
+    fn render_node_left_to_wlroots_without_a_choice() {
+        assert_eq!(pick_render_node(&[node("renderD128", Some("i915"))]), None);
+        assert_eq!(
+            pick_render_node(&[node("renderD128", Some("nvidia"))]),
+            None
+        );
+        assert_eq!(
+            pick_render_node(&[node("renderD128", Some("nvidia")), node("renderD129", None)]),
+            None
+        );
+        assert_eq!(pick_render_node(&[]), None);
+    }
+
     use super::*;
 
     #[test]
