@@ -231,9 +231,11 @@ impl Desktop {
              xwayland disable\n\
              default_border none\n\
              exec sh -c 'printf %s \"$WAYLAND_DISPLAY\" > {ready}'\n\
-             {shell}",
+             {shell}\
+             {binds}",
             ready = ready.display(),
-            shell = shell_exec_line()
+            shell = shell_exec_line(),
+            binds = super::binds::sway_binds(&dir)
         );
         std::fs::write(dir.join("config"), config).context("write sway config")?;
 

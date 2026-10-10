@@ -6,6 +6,7 @@
 //! proxied VNC WebSocket and the PWA, all on one port bound to 127.0.0.1.
 
 pub mod agent;
+pub mod binds;
 pub mod desktop;
 pub mod keylock;
 pub mod mcp;
