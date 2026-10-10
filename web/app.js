@@ -249,12 +249,18 @@ function buildFocus() {
   // The live view starts below the header, however tall a long task makes it.
   new ResizeObserver(() => stage.style.setProperty('--head-h', head.offsetHeight + 'px')).observe(head);
   const info = el('div', 'info');
-  const sub = el('div', 'sub'); sub.id = 'f-sub';
+  // Three tiers: who and what state, then the task, then the quiet machine details.
+  const titleRow = el('div', 'title-row');
   const h1 = el('h1'); h1.id = 'f-name';
-  const stt = el('div', 'state'); stt.id = 'f-state';
+  const chip = el('span', 'chip'); chip.id = 'f-chip';
+  titleRow.append(h1, chip);
+  const task = el('div', 'task'); task.id = 'f-task';
+  const meta = el('div', 'meta');
+  const sub = el('span', 'sub'); sub.id = 'f-sub';
   const mode = el('span', 'mode'); mode.id = 'f-mode';
   mode.setAttribute('role', 'status');
-  info.append(h1, stt, sub, mode);
+  meta.append(sub, mode);
+  info.append(titleRow, task, meta);
   const seg = el('div', 'seg glass');
   seg.setAttribute('role', 'group');
   seg.setAttribute('aria-label', 'Control');
@@ -290,14 +296,15 @@ function updateStage(f) {
   stage.classList.toggle('driving', dr);
   $('#f-sub').textContent = `${f.display} · ${f.compositor} · ${f.res}`;
   $('#f-name').textContent = f.name;
-  const stt = $('#f-state');
-  stt.replaceChildren();
-  const color = f.status === 'needs' ? 'var(--amber)' : f.status === 'idle' ? 'var(--mute)' : 'var(--ink-3)';
-  stt.style.color = color;
-  stt.append(el('span', `dot ${f.status}`), document.createTextNode({ running: 'Running', needs: 'Needs you', idle: 'Idle' }[f.status] + ' '), el('span', 'mu', `· ${f.task}`));
+  const chip = $('#f-chip');
+  chip.className = `chip ${f.status}`;
+  chip.replaceChildren(el('span', `dot ${f.status}`), document.createTextNode({ running: 'Running', needs: 'Needs you', idle: 'Idle' }[f.status]));
+  $('#f-task').textContent = f.task;
+  $('#f-task').title = f.task;
   $('#b-watch').setAttribute('aria-pressed', String(!dr));
   $('#b-drive').setAttribute('aria-pressed', String(dr));
-  $('#f-mode').textContent = dr ? 'YOU ARE DRIVING · agent paused' : 'WATCHING · read-only';
+  $('#f-mode').textContent = dr ? 'You are driving · agent paused' : 'Watching · read-only';
+  $('#f-mode').classList.toggle('drive', dr);
   const idle = f.status === 'idle';
   // A real desktop always has a live display. Only a desktop with no agent offers Assign.
   const unassigned = MOCK ? idle : !f.pane;
