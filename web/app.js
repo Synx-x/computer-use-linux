@@ -38,7 +38,7 @@ const state = {
 const BLUR = {
   standard: ['Standard', 'Frosted. 55% bar, 6px tiles'],
   bleed: ['Bleed', 'Bar fades right, lighter tiles'],
-  clear: ['Clear', 'Barely there. Sky in full'],
+  clear: ['Clear', 'No glass. Sky in full'],
 };
 
 // ---------- chrome ----------
@@ -265,6 +265,10 @@ function updateStage(f) {
   if (!MOCK) {
     if (rfbHost && rfbHost !== f.id) teardownVnc();
     connectVnc(f, stage);
+    // An empty desktop streams as plain black, so say what it is and what to do.
+    const note = stage.querySelector('.empty-note');
+    if (unassigned && !note) stage.append(el('div', 'empty-note', 'Empty desktop · assign an agent to start'));
+    else if (!unassigned) note?.remove();
     if (rfb) rfb.viewOnly = !dr;
   }
 
