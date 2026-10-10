@@ -125,10 +125,10 @@ desktop-tile:hover .go, desktop-tile:focus-within .go { background-color: var(--
 .wall:has(desktop-tile:hover) desktop-tile:not(:hover) { opacity: .6; filter: saturate(.55) brightness(.85); }
 
 /* focus */
-.focus { flex: 1; display: flex; min-height: max(420px, calc(100dvh - 61px)); }
+.focus { flex: none; display: flex; height: max(420px, calc(100dvh - var(--top-h, 62px))); min-height: 0; overflow: hidden; }
 .focus.resizing { cursor: col-resize; user-select: none; }
 .focus.resizing .vnc { pointer-events: none; }
-.stage { flex: 1 1 auto; min-width: 0; min-height: 420px; position: relative; overflow: hidden; background: var(--tile-bg); backdrop-filter: blur(var(--tile-px)); -webkit-backdrop-filter: blur(var(--tile-px)); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .06); }
+.stage { flex: 1 1 auto; min-width: 0; min-height: 0; position: relative; overflow: hidden; background: var(--tile-bg); backdrop-filter: blur(var(--tile-px)); -webkit-backdrop-filter: blur(var(--tile-px)); box-shadow: inset 0 0 0 .5px rgba(255, 255, 255, .06); }
 .stage.driving { box-shadow: inset 0 0 0 2px var(--amber); }
 .stage .win { position: absolute; inset: 120px 8% 120px 8%; display: flex; flex-direction: column; background: rgba(14, 13, 22, .9); border-radius: 12px; overflow: hidden; box-shadow: 0 30px 80px -30px rgba(0, 0, 0, .95), inset 0 0 0 1px rgba(255, 255, 255, .05); animation: zoomin 800ms var(--ease) backwards; }
 .stage .win .wt { padding: 10px 16px; font-size: 12px; }
@@ -157,12 +157,12 @@ desktop-tile:hover .go, desktop-tile:focus-within .go { background-color: var(--
 .divider::after { content: ""; position: absolute; top: 50%; left: 50%; width: 4px; height: 36px; transform: translate(-50%, -50%); border-radius: 4px; background: rgba(255, 255, 255, .22); transition: background-color 200ms ease, height 200ms ease; }
 .divider:hover::before, .divider:focus-visible::before, .resizing .divider::before { width: 2px; background: rgba(178, 255, 102, .45); }
 .divider:hover::after, .divider:focus-visible::after, .resizing .divider::after { height: 56px; background: var(--lime-hi); }
-.log { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 14px 24px; background: linear-gradient(to bottom, rgba(3, 2, 8, calc(var(--log-a) + .15)), rgba(3, 2, 8, .1)); scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .15) transparent; }
-.log .lh { position: sticky; top: 0; z-index: 1; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 14px 4px 10px; margin: 0 -14px 0; padding-inline: 18px; background: rgba(3, 2, 8, .72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: inset 0 -1px 0 rgba(255, 255, 255, .06); }
-.log .lh h2 { margin: 0; font: 600 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2); }
+.log { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0 14px; }
+.log .lh { flex: none; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 16px 4px 8px; text-shadow: 0 1px 2px rgba(0, 0, 0, .9), 0 0 14px rgba(3, 2, 8, .9); }
+.log .lh h2 { margin: 0; font: 600 11px var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
 .log .lh .who { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.log .entries { list-style: none; margin: 0; padding: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
-.log .e { padding: 10px 12px; border-radius: 10px; background: rgba(255, 255, 255, .025); transition: background-color 200ms ease; }
+.log .entries { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; list-style: none; margin: 0; padding: 10px 0 28px; display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, .15) transparent; -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%); mask-image: linear-gradient(to bottom, transparent 0, #000 14px, #000 calc(100% - 28px), transparent 100%); }
+.log .e { flex: none; padding: 10px 12px; border-radius: 10px; background: rgba(3, 2, 8, .32); transition: background-color 200ms ease; }
 .log .e:hover { background: rgba(255, 255, 255, .05); }
 .log .et { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .log .e .v { font: 600 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; padding: 3px 9px; border-radius: 999px; color: var(--ink-2); background: rgba(255, 255, 255, .07); }
@@ -224,7 +224,7 @@ dialog .row { display: flex; justify-content: flex-end; gap: 8px; }
 
 @keyframes fade { from { opacity: 0; filter: blur(8px); } }
 @keyframes zoomin { from { opacity: 0; transform: scale(.96); filter: blur(6px); } }
-@media (max-width: 900px) { .focus { flex-wrap: wrap; } .divider { display: none; } .rail { flex: 1 1 100%; width: auto; } .log { max-height: 60vh; } }
+@media (max-width: 900px) { .focus { flex-wrap: wrap; height: auto; overflow: visible; } .stage { flex: 1 1 100%; height: 62vh; min-height: 360px; } .divider { display: none; } .rail { flex: 1 1 100%; width: auto; overflow: visible; } .log { max-height: 70vh; } .stage .acts .seg { margin-left: 0; } }
 @media (prefers-reduced-motion: reduce) {
   desktop-tile, desktop-tile *, .stage .win, .stage .vnc, .content, .overlay, .panel { transition: none !important; animation: none !important; }
 }

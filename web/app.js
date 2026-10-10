@@ -457,6 +457,7 @@ document.addEventListener('focus-desktop', (e) => {
   else render();
 });
 
+new ResizeObserver(() => root.style.setProperty('--top-h', $('.top').offsetHeight + 'px')).observe($('.top'));
 buildSettings();
 applyTheme();
 api.subscribe(() => load());
