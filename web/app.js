@@ -36,7 +36,7 @@ const state = {
 };
 
 const BLUR = {
-  standard: ['Standard', 'Frosted. 40% bar, 6px tiles'],
+  standard: ['Standard', 'Frosted. 55% bar, 6px tiles'],
   bleed: ['Bleed', 'Bar fades right, lighter tiles'],
   clear: ['Clear', 'Barely there. Sky in full'],
 };
