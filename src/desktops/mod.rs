@@ -193,9 +193,11 @@ async fn install(serve_args: &[String]) -> Result<()> {
     )
     .context("write the app launcher")?;
     println!("Wrote {}", launcher.display());
+    // Restart, not enable --now: an upgrade must replace a running old binary.
     for args in [
         vec!["--user", "daemon-reload"],
-        vec!["--user", "enable", "--now", UNIT_NAME],
+        vec!["--user", "enable", UNIT_NAME],
+        vec!["--user", "restart", UNIT_NAME],
     ] {
         let status = tokio::process::Command::new("systemctl")
             .args(&args)

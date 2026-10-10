@@ -93,7 +93,7 @@ All routes live on the daemon's port.
 - **Runtime files.** Each desktop lives in `$XDG_RUNTIME_DIR/agent-desktops-<port>/<id>/`. Agent working folders live in `~/.local/share/agent-desktops/<name>`.
 - **Orphans.** On start, the daemon kills any sway or wayvnc left in its runtime folder by an earlier run.
 - **Stop.** Ctrl-C or SIGTERM stops every desktop and closes every agent tab.
-- **Install.** `desktops install` writes `~/.config/systemd/user/agent-desktops.service`, enables it and starts it. It also writes the **Agent Desktops** app launcher to `~/.local/share/applications/` and prints the MCP command. The unit runs the binary that wrote it, so run `install` from the build you want to keep. `desktops uninstall` removes the unit and the launcher.
+- **Install.** `desktops install` writes `~/.config/systemd/user/agent-desktops.service`, enables it and restarts it. The restart replaces a running old build during an upgrade. It also writes the **Agent Desktops** app launcher to `~/.local/share/applications/` and prints the MCP command. The unit runs the binary that wrote it, so run `install` from the build you want to keep. `desktops uninstall` removes the unit and the launcher.
 - **Unit only.** `desktops install-unit` writes the unit and does not enable it.
 
 ## The orchestration MCP server
